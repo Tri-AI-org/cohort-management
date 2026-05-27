@@ -1,0 +1,356 @@
+---
+/**
+ * /[number]/admin/import
+ *
+ * Two-step CSV import: paste/upload → preview → commit.
+ */
+import AppShell from '../../../layouts/AppShell.astro';
+import { getCollection } from 'astro:content';
+
+export async function getStaticPaths() {
+  const cohorts = await getCollection('cohorts');
+  return cohorts
+    .filter(c => c.data.portal?.enabled)
+    .map(c => ({
+      params: { number: String(c.data.number) },
+      props:  { cohort: c },
+    }));
+}
+
+const { cohort } = Astro.props;
+const cohortNumber = cohort.data.number;
+---
+<AppShell
+  title={`Import applications · Cohort ${cohortNumber}`}
+  requiredKind="organiser"
+  cohortNumber={cohortNumber}
+>
+  <div class="container app-page">
+    <div style="display:flex; align-items:baseline; justify-content:space-between; gap:var(--space-3); margin-bottom:var(--space-3);">
+      <div>
+        <h1>Import applications from Google Forms CSV</h1>
+        <p class="lede">
+          Download the responses sheet from Google Sheets (File → Download → CSV),
+          then upload it here. You'll see a preview before anything is written.
+        </p>
+      </div>
+      <nav class="admin-nav">
+        <a href={`/${cohortNumber}/admin/applications`}>← Applications</a>
+      </nav>
+    </div>
+
+    <div id="error" class="auth-msg err" hidden></div>
+
+    <!-- Step 1: upload -->
+    <div class="import-step" id="step-upload">
+      <div class="upload-card">
+        <label class="file-drop" id="file-drop">
+          <input type="file" id="file-input" accept=".csv,text/csv" hidden />
+          <div class="file-drop-icon">📄</div>
+          <div class="file-drop-text">
+            <strong>Choose a CSV file</strong>
+            <span>or drop one here</span>
+          </div>
+        </label>
+        <div class="upload-meta" id="upload-meta" hidden>
+          <span id="upload-filename"></span>
+          <span class="mono" id="upload-size"></span>
+          <button class="btn-link" id="upload-clear">Clear</button>
+        </div>
+        <div style="display:flex; justify-content:flex-end; margin-top:16px;">
+          <button class="btn primary" id="preview-btn" disabled>Preview import →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 2: preview -->
+    <div class="import-step" id="step-preview" hidden>
+      <h2 class="section-h">Preview</h2>
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-label">Total rows</div>
+          <div class="stat-value" id="prev-total">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">New applicants</div>
+          <div class="stat-value ok" id="prev-new">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Returning</div>
+          <div class="stat-value" id="prev-returning">—</div>
+          <div class="stat-sub" id="prev-returning-sub"></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Already applied here</div>
+          <div class="stat-value warn" id="prev-dupes">—</div>
+          <div class="stat-sub">will update</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Errors</div>
+          <div class="stat-value alert" id="prev-errors">—</div>
+          <div class="stat-sub">will be skipped</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Duplicate rows in CSV</div>
+          <div class="stat-value" id="prev-csvdupes">—</div>
+          <div class="stat-sub">first wins</div>
+        </div>
+      </div>
+
+      <div id="errors-panel" hidden>
+        <h3 class="subsection-h">Errors (won't be imported)</h3>
+        <ul class="error-list" id="error-list"></ul>
+      </div>
+
+      <div id="returning-panel" hidden>
+        <h3 class="subsection-h">Examples of returning applicants</h3>
+        <ul class="returning-list" id="returning-list"></ul>
+      </div>
+
+      <div class="action-row">
+        <button class="btn" id="back-btn">← Back</button>
+        <span style="flex:1"></span>
+        <button class="btn primary" id="commit-btn">Commit import</button>
+      </div>
+    </div>
+
+    <!-- Step 3: done -->
+    <div class="import-step" id="step-done" hidden>
+      <div class="done-card">
+        <div class="done-icon">✓</div>
+        <h2>Import complete</h2>
+        <p id="done-summary"></p>
+        <div class="action-row" style="justify-content:center; margin-top:24px;">
+          <a class="btn" href={`/${cohortNumber}/admin/import`}>Import another →</a>
+          <a class="btn primary" href={`/${cohortNumber}/admin/applications`}>Review applications →</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    .upload-card {
+      background: #fff; border: 1px solid var(--border, rgba(0,0,0,0.08));
+      border-radius: 12px; padding: 24px;
+    }
+    .file-drop {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 12px; padding: 40px 24px;
+      border: 2px dashed var(--border, #d4d4d4); border-radius: 10px;
+      background: var(--bg-soft, #fafafa);
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .file-drop:hover { border-color: var(--teaching); background: var(--teaching-light); }
+    .file-drop.is-dragging { border-color: var(--teaching); background: var(--teaching-light); }
+    .file-drop-icon { font-size: 36px; }
+    .file-drop-text { text-align: center; }
+    .file-drop-text strong { display: block; font-size: 16px; }
+    .file-drop-text span { color: var(--text-dim, #888); font-size: var(--t-small); }
+    .upload-meta {
+      display: flex; align-items: center; gap: 12px; padding: 12px 14px;
+      margin-top: 12px;
+      background: var(--bg-soft, #fafafa); border-radius: 8px;
+      font-size: var(--t-small);
+    }
+    .upload-meta > span:first-child { font-weight: 600; flex: 1; }
+
+    .subsection-h {
+      font-size: 14px; margin: var(--space-4) 0 var(--space-2);
+      text-transform: uppercase; letter-spacing: 0.04em;
+      color: var(--text-dim, #666);
+    }
+    .error-list, .returning-list { list-style: none; margin: 0; padding: 0; }
+    .error-list li, .returning-list li {
+      padding: 8px 12px; background: #fff;
+      border: 1px solid var(--border, rgba(0,0,0,0.06));
+      border-radius: 6px; margin-bottom: 4px;
+      font-size: var(--t-small);
+    }
+    .error-list li { color: #8C2020; }
+    .returning-list li .mono { font-size: 12px; color: var(--text-dim, #888); }
+
+    .action-row {
+      display: flex; gap: 12px; align-items: center;
+      margin-top: var(--space-5);
+    }
+    .done-card {
+      background: #fff; border: 1px solid var(--border, rgba(0,0,0,0.08));
+      border-radius: 12px; padding: 40px;
+      text-align: center;
+    }
+    .done-icon {
+      width: 64px; height: 64px; line-height: 64px;
+      margin: 0 auto 16px;
+      background: var(--success); color: #fff;
+      font-size: 32px;
+      border-radius: 50%;
+    }
+    .admin-nav { display:flex; gap:16px; flex-wrap:wrap; font-size:var(--t-small); }
+    .admin-nav a {
+      color: var(--teaching); text-decoration: none;
+      padding: 6px 10px; border-radius: 6px;
+    }
+    .admin-nav a:hover { background: var(--teaching-light); }
+    .section-h {
+      font-size: var(--t-h2); margin: 0 0 var(--space-3);
+      letter-spacing: -0.015em;
+    }
+  </style>
+
+  <script is:inline define:vars={{ cohortNumber }}>
+    (function () {
+      const $ = (id) => document.getElementById(id);
+      let csvText = '';
+      let csvFilename = '';
+
+      // ── Drag-and-drop ──────────────────────────────────────
+      const fileDrop  = $('file-drop');
+      const fileInput = $('file-input');
+      const uploadMeta = $('upload-meta');
+      const previewBtn = $('preview-btn');
+
+      fileDrop.addEventListener('click', () => fileInput.click());
+      fileDrop.addEventListener('dragover', (e) => {
+        e.preventDefault(); fileDrop.classList.add('is-dragging');
+      });
+      fileDrop.addEventListener('dragleave', () => fileDrop.classList.remove('is-dragging'));
+      fileDrop.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        fileDrop.classList.remove('is-dragging');
+        if (e.dataTransfer.files.length > 0) await handleFile(e.dataTransfer.files[0]);
+      });
+      fileInput.addEventListener('change', async () => {
+        if (fileInput.files.length > 0) await handleFile(fileInput.files[0]);
+      });
+      $('upload-clear').addEventListener('click', () => {
+        csvText = ''; csvFilename = '';
+        fileInput.value = '';
+        uploadMeta.hidden = true;
+        previewBtn.disabled = true;
+      });
+
+      async function handleFile(file) {
+        if (!file.name.endsWith('.csv') && file.type !== 'text/csv') {
+          alert('Please choose a .csv file.');
+          return;
+        }
+        csvText = await file.text();
+        csvFilename = file.name;
+        $('upload-filename').textContent = file.name;
+        $('upload-size').textContent = formatBytes(file.size);
+        uploadMeta.hidden = false;
+        previewBtn.disabled = false;
+      }
+
+      // ── Preview ────────────────────────────────────────────
+      previewBtn.addEventListener('click', async () => {
+        previewBtn.disabled = true; previewBtn.textContent = 'Previewing…';
+        try {
+          const res = await fetch('/api/applications/import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+              cohort: cohortNumber, csv: csvText, confirm: false, filename: csvFilename,
+            }),
+          });
+          if (res.status === 401) { location.replace('/admin/login'); return; }
+          const data = await res.json();
+          if (!res.ok) { showError(data.error || 'Preview failed.'); return; }
+          renderPreview(data);
+          $('step-upload').hidden = true;
+          $('step-preview').hidden = false;
+        } catch (err) {
+          showError('Network error during preview.');
+        } finally {
+          previewBtn.disabled = false; previewBtn.textContent = 'Preview import →';
+        }
+      });
+
+      $('back-btn').addEventListener('click', () => {
+        $('step-preview').hidden = true;
+        $('step-upload').hidden = false;
+      });
+
+      // ── Commit ─────────────────────────────────────────────
+      $('commit-btn').addEventListener('click', async () => {
+        if (!confirm('Commit this import? This action is undoable from SQL but cannot be reverted from the UI.')) return;
+        $('commit-btn').disabled = true; $('commit-btn').textContent = 'Committing…';
+        try {
+          const res = await fetch('/api/applications/import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+              cohort: cohortNumber, csv: csvText, confirm: true, filename: csvFilename,
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok) { showError(data.error || 'Commit failed.'); return; }
+          $('step-preview').hidden = true;
+          $('step-done').hidden = false;
+          $('done-summary').textContent =
+            'Imported ' + data.inserted + ' new applications and updated ' + data.updated +
+            (data.skipped ? ' (' + data.skipped + ' skipped)' : '') +
+            '. Batch ID: ' + data.batchId;
+        } catch (err) {
+          showError('Network error during commit.');
+        } finally {
+          $('commit-btn').disabled = false; $('commit-btn').textContent = 'Commit import';
+        }
+      });
+
+      function renderPreview(d) {
+        const s = d.summary || {};
+        $('prev-total').textContent     = s.totalRows ?? 0;
+        $('prev-new').textContent       = s.newApplicants ?? 0;
+        $('prev-returning').textContent = s.returningApplicants ?? 0;
+        $('prev-returning-sub').textContent =
+          (s.returningApplicants || 0) + ' matched by email';
+        $('prev-dupes').textContent   = s.alreadyAppliedToThisCohort ?? 0;
+        $('prev-errors').textContent  = s.errors ?? 0;
+        $('prev-csvdupes').textContent = s.duplicateEmailsInCsv ?? 0;
+
+        const errs = d.errors || [];
+        if (errs.length > 0) {
+          const ul = $('error-list'); ul.innerHTML = '';
+          for (const e of errs) {
+            const li = document.createElement('li');
+            li.textContent = 'Row ' + e.row + ': ' + e.error;
+            ul.appendChild(li);
+          }
+          $('errors-panel').hidden = false;
+        } else {
+          $('errors-panel').hidden = true;
+        }
+
+        const rets = d.returningExamples || [];
+        if (rets.length > 0) {
+          const ul = $('returning-list'); ul.innerHTML = '';
+          for (const r of rets) {
+            const li = document.createElement('li');
+            li.innerHTML = '<strong>' + escapeHtml(r.name) + '</strong> · <span class="mono">' + escapeHtml(r.email) + '</span>';
+            ul.appendChild(li);
+          }
+          $('returning-panel').hidden = false;
+        } else {
+          $('returning-panel').hidden = true;
+        }
+      }
+
+      function showError(text) {
+        $('error').textContent = text;
+        $('error').hidden = false;
+      }
+      function formatBytes(n) {
+        if (n < 1024) return n + ' B';
+        if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+        return (n / 1024 / 1024).toFixed(1) + ' MB';
+      }
+      function escapeHtml(s) {
+        return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      }
+    })();
+  </script>
+</AppShell>

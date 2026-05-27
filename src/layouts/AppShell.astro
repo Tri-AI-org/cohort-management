@@ -1,0 +1,143 @@
+---
+/**
+ * AppShell.astro — layout for authenticated portal pages.
+ *
+ * Same chrome as Base, but with a thin "signed in as X" bar below
+ * the header. The bar is populated by client JS that calls a small
+ * /api/session endpoint (the same one all pages use to check
+ * who's signed in).
+ *
+ * Why a separate layout: public pages (sign-in, cohort cards) need
+ * no auth chrome and shouldn't accidentally render a "sign out"
+ * link before the user is signed in. Splitting layouts keeps the
+ * separation honest.
+ */
+import '../styles/global.css';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+
+interface Props {
+  title?: string;
+  description?: string;
+  /** If set, the app-bar shows a cohort badge linking to /[n]/. */
+  cohortNumber?: number;
+  /** Required role to view this page. If session.kind doesn't match,
+   *  client JS redirects to /signin or /admin/login. */
+  requiredKind?: 'student' | 'organiser' | 'any';
+  noFooter?: boolean;
+}
+
+const {
+  title         = 'TRI AI Cohort Portal',
+  description   = 'Attendance, schedule, and resources for active TRI AI cohorts.',
+  cohortNumber,
+  requiredKind  = 'any',
+  noFooter      = false,
+} = Astro.props;
+
+const canonical = new URL(Astro.url.pathname, Astro.site).toString();
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="generator" content={Astro.generator} />
+    <meta name="robots" content="noindex, nofollow" />
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="canonical" href={canonical} />
+
+    <title>{title}</title>
+    <meta name="description" content={description} />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@200;300;400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <script is:inline>
+      (function () {
+        try {
+          var t = localStorage.getItem('triai-portal-theme');
+          if (t === 'light' || t === 'dark') {
+            document.documentElement.setAttribute('data-theme', t);
+          }
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <Header />
+
+    <div class="appbar" role="navigation" aria-label="Account">
+      <div class="container appbar-inner">
+        <div class="appbar-left">
+          {cohortNumber !== undefined && (
+            <a href={`/${cohortNumber}/`} class="cohort-pill">
+              Cohort <span class="mono">{cohortNumber}</span>
+            </a>
+          )}
+        </div>
+        <div class="appbar-right" data-session-area>
+          <span class="appbar-loading mono">…</span>
+        </div>
+      </div>
+    </div>
+
+    <main id="main"><slot /></main>
+    {!noFooter && <Footer />}
+
+    <script is:inline define:vars={{ requiredKind, cohortNumber }}>
+      // Auth gate + appbar populate. Runs on every authenticated page.
+      // Calls /api/session to find out who (if anyone) is signed in,
+      // populates the appbar, and redirects if the page requires a
+      // role the user doesn't have.
+      (async function () {
+        const area = document.querySelector('[data-session-area]');
+        try {
+          const res = await fetch('/api/session', { credentials: 'same-origin' });
+          const session = res.ok ? await res.json() : { kind: null };
+
+          // Role gate
+          if (requiredKind !== 'any' && session.kind !== requiredKind) {
+            // Stash the intended URL so the user comes back here after login
+            try { sessionStorage.setItem('post_login_redirect', location.pathname); } catch (e) {}
+            if (requiredKind === 'organiser') {
+              location.replace('/admin/login');
+            } else {
+              const c = cohortNumber !== undefined ? `?cohort=${cohortNumber}` : '';
+              location.replace('/signin' + c);
+            }
+            return;
+          }
+
+          // Populate the appbar
+          if (session.kind) {
+            const who = session.email || 'signed in';
+            const kind = session.kind === 'organiser' ? 'organiser' :
+                         session.kind === 'facilitator' ? 'facilitator' : 'student';
+            area.innerHTML =
+              '<span class="appbar-who"><span class="appbar-kind">' + kind + '</span>' +
+              '<span class="appbar-email mono">' + who + '</span></span>' +
+              '<button type="button" class="btn-link" data-signout>Sign out</button>';
+            const sb = area.querySelector('[data-signout]');
+            sb.addEventListener('click', async () => {
+              await fetch('/api/session', { method: 'DELETE', credentials: 'same-origin' });
+              location.replace('/');
+            });
+          } else {
+            // Not signed in but page allows anonymous (requiredKind=any).
+            // Show a sign-in link.
+            area.innerHTML = '<a href="/signin" class="btn-link">Sign in</a>';
+          }
+        } catch (err) {
+          area.textContent = '';
+        }
+      })();
+    </script>
+  </body>
+</html>

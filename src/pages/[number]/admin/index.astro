@@ -1,0 +1,319 @@
+---
+/**
+ * /[number]/admin/
+ *
+ * Organiser dashboard. Pulls from /api/dashboard:
+ *   - overview: cohort stats + per-session attendance data
+ *   - atrisk: students who've missed enough sessions to flag
+ *
+ * Most of the page is rendered on the client because the data is
+ * live. The Astro side just provides the chrome and the cohort
+ * context.
+ */
+import AppShell from '../../../layouts/AppShell.astro';
+import { getCollection } from 'astro:content';
+
+export async function getStaticPaths() {
+  const cohorts = await getCollection('cohorts');
+  return cohorts
+    .filter(c => c.data.portal?.enabled)
+    .map(c => ({
+      params: { number: String(c.data.number) },
+      props:  { cohort: c },
+    }));
+}
+
+const { cohort } = Astro.props;
+const cohortNumber = cohort.data.number;
+---
+<AppShell
+  title={`Admin · Cohort ${cohortNumber}`}
+  requiredKind="organiser"
+  cohortNumber={cohortNumber}
+>
+  <div class="container app-page">
+    <div style="display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:var(--space-3); margin-bottom: var(--space-3);">
+      <div>
+        <h1>Cohort {cohortNumber} dashboard</h1>
+        <p class="lede" id="cohort-meta">Loading…</p>
+      </div>
+      <nav class="admin-nav">
+        <a href={`/${cohortNumber}/admin/students`}>Students →</a>
+        <a href={`/${cohortNumber}/admin/applications`}>Applications →</a>
+        <a href={`/${cohortNumber}/admin/import`}>Import CSV →</a>
+      </nav>
+    </div>
+
+    <div id="error" class="auth-msg err" hidden></div>
+
+    <!-- Top stats -->
+    <div class="stat-grid" id="stat-grid" hidden>
+      <div class="stat-card">
+        <div class="stat-label">Active students</div>
+        <div class="stat-value" id="stat-active">—</div>
+        <div class="stat-sub" id="stat-active-sub"></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Avg attendance</div>
+        <div class="stat-value" id="stat-attendance">—</div>
+        <div class="stat-sub">across all active students</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">At risk</div>
+        <div class="stat-value alert" id="stat-atrisk">—</div>
+        <div class="stat-sub" id="stat-atrisk-sub"></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Facilitators</div>
+        <div class="stat-value dim" id="stat-facils">—</div>
+        <div class="stat-sub">assigned</div>
+      </div>
+    </div>
+
+    <!-- Per-session drop-off -->
+    <h2 class="section-h">Session attendance</h2>
+    <p class="lede" style="margin-top:-8px">
+      How many students attended live, watched the recording, or missed each week.
+    </p>
+    <div class="drop-off-chart" id="drop-off-chart" hidden>
+      <!-- populated by JS -->
+    </div>
+
+    <!-- At-risk -->
+    <h2 class="section-h">Students at risk</h2>
+    <p class="lede" style="margin-top:-8px">
+      Students whose attendance has dipped to the cohort's warning or critical threshold.
+    </p>
+    <table class="data-table" id="atrisk-table" hidden>
+      <thead>
+        <tr>
+          <th>Student</th>
+          <th>Country</th>
+          <th class="right">Attended</th>
+          <th class="right">Missed</th>
+          <th class="right">Attendance</th>
+          <th>Risk</th>
+        </tr>
+      </thead>
+      <tbody id="atrisk-tbody"></tbody>
+    </table>
+    <div class="empty-state" id="atrisk-empty" hidden>
+      <p>🎉 No students at risk right now.</p>
+    </div>
+  </div>
+
+  <style>
+    .admin-nav {
+      display: flex; gap: 16px; flex-wrap: wrap;
+      font-size: var(--t-small);
+    }
+    .admin-nav a {
+      color: var(--teaching);
+      text-decoration: none;
+      padding: 6px 10px; border-radius: 6px;
+      border: 1px solid transparent;
+    }
+    .admin-nav a:hover {
+      border-color: var(--teaching);
+      background: var(--teaching-light);
+    }
+    .section-h {
+      font-size: var(--t-h2);
+      margin: var(--space-5) 0 var(--space-2);
+      letter-spacing: -0.015em;
+    }
+    .drop-off-chart {
+      background: #fff;
+      border: 1px solid var(--border, rgba(0,0,0,0.08));
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: var(--space-5);
+      overflow-x: auto;
+    }
+    .drop-off-rows {
+      display: grid;
+      gap: 6px;
+      min-width: 600px;
+    }
+    .drop-off-row {
+      display: grid;
+      grid-template-columns: 48px 1fr 100px;
+      align-items: center;
+      gap: 10px;
+    }
+    .drop-off-week {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-dim, #888);
+    }
+    .drop-off-bar {
+      display: flex;
+      height: 22px;
+      border-radius: 4px;
+      overflow: hidden;
+      background: rgba(0,0,0,0.04);
+    }
+    .drop-off-bar .seg-live      { background: var(--success); }
+    .drop-off-bar .seg-recording { background: var(--gold); }
+    .drop-off-bar .seg-missed    { background: var(--alert); opacity: 0.75; }
+    .drop-off-bar .seg-excused   { background: #999; }
+    .drop-off-rate {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      text-align: right;
+      color: var(--text-dim, #555);
+    }
+    .drop-off-rate strong { color: var(--text, #141414); font-weight: 700; }
+    .drop-off-break {
+      color: var(--text-dim, #aaa);
+      font-style: italic;
+      text-align: center;
+      padding: 4px 0;
+      font-size: 12px;
+    }
+    .empty-state {
+      background: #fff;
+      border: 1px dashed var(--border, rgba(0,0,0,0.12));
+      border-radius: 10px;
+      padding: 32px;
+      text-align: center;
+      color: var(--text-dim, #888);
+    }
+  </style>
+
+  <script is:inline define:vars={{ cohortNumber }}>
+    (async function () {
+      const $ = (id) => document.getElementById(id);
+      const errBox = $('error');
+
+      function showError(text) {
+        errBox.textContent = text;
+        errBox.hidden = false;
+      }
+
+      try {
+        const res = await fetch('/api/dashboard', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ action: 'overview', cohort: cohortNumber }),
+        });
+        if (res.status === 401) { location.replace('/admin/login'); return; }
+        const data = await res.json();
+        if (!res.ok) { showError(data.error || 'Could not load overview.'); return; }
+        renderOverview(data);
+      } catch (err) {
+        showError('Network error loading overview.');
+      }
+
+      try {
+        const res = await fetch('/api/dashboard', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ action: 'atrisk', cohort: cohortNumber }),
+        });
+        const data = await res.json();
+        if (res.ok) renderAtrisk(data.rows || []);
+      } catch (err) { /* non-fatal */ }
+
+
+      function renderOverview(d) {
+        const c = d.cohort || {};
+        const s = d.summary || {};
+        const meta = [];
+        if (c.partner) meta.push('with ' + c.partner);
+        if (c.startDate) meta.push('starts ' + c.startDate);
+        if (c.status) meta.push(c.status);
+        $('cohort-meta').textContent = meta.join(' · ') || 'No metadata';
+
+        $('stat-active').textContent = s.active_students ?? 0;
+        $('stat-active-sub').textContent =
+          (s.withdrawn_students || 0) + ' withdrawn';
+        const pct = s.avg_attendance_pct;
+        $('stat-attendance').textContent = pct === null || pct === undefined ? '—' : pct + '%';
+        $('stat-atrisk').textContent = (s.critical_count || 0);
+        $('stat-atrisk-sub').textContent =
+          (s.warning_count || 0) + ' warning · ' + (s.critical_count || 0) + ' critical';
+        $('stat-facils').textContent = s.facilitator_count ?? 0;
+        $('stat-grid').hidden = false;
+
+        // Drop-off chart
+        const chart = $('drop-off-chart');
+        const rowsEl = document.createElement('div');
+        rowsEl.className = 'drop-off-rows';
+        for (const sess of (d.sessions || [])) {
+          const row = document.createElement('div');
+          if (sess.is_break) {
+            row.className = 'drop-off-break';
+            row.textContent = 'Week ' + sess.week_number + ' — break';
+          } else {
+            row.className = 'drop-off-row';
+            const elig = sess.eligible_students || 0;
+            const total = (sess.attended_live || 0) + (sess.watched_recording || 0)
+                        + (sess.missed || 0) + (sess.excused || 0);
+            const denom = Math.max(total, elig, 1);
+
+            const pctLive = (sess.attended_live  || 0) / denom * 100;
+            const pctRec  = (sess.watched_recording || 0) / denom * 100;
+            const pctMiss = (sess.missed || 0) / denom * 100;
+            const pctExc  = (sess.excused || 0) / denom * 100;
+
+            const rate = elig > 0
+              ? Math.round(100 * ((sess.attended_live||0) + (sess.watched_recording||0)) / elig) + '%'
+              : '—';
+
+            row.innerHTML =
+              '<div class="drop-off-week">W' + sess.week_number + '</div>' +
+              '<div>' +
+                '<div class="drop-off-bar">' +
+                  '<div class="seg-live"      style="width:' + pctLive + '%" title="Live: ' + (sess.attended_live||0) + '"></div>' +
+                  '<div class="seg-recording" style="width:' + pctRec  + '%" title="Recording: ' + (sess.watched_recording||0) + '"></div>' +
+                  '<div class="seg-missed"    style="width:' + pctMiss + '%" title="Missed: ' + (sess.missed||0) + '"></div>' +
+                  '<div class="seg-excused"   style="width:' + pctExc  + '%" title="Excused: ' + (sess.excused||0) + '"></div>' +
+                '</div>' +
+                '<div style="font-size:11px;color:#888;margin-top:3px">' + escapeHtml(sess.topic || '') + '</div>' +
+              '</div>' +
+              '<div class="drop-off-rate"><strong>' + rate + '</strong><br>' +
+                ((sess.attended_live||0) + (sess.watched_recording||0)) + ' / ' + elig +
+              '</div>';
+          }
+          rowsEl.appendChild(row);
+        }
+        chart.innerHTML = '';
+        chart.appendChild(rowsEl);
+        chart.hidden = false;
+      }
+
+      function renderAtrisk(rows) {
+        if (rows.length === 0) {
+          $('atrisk-empty').hidden = false;
+          return;
+        }
+        const tbody = $('atrisk-tbody');
+        tbody.innerHTML = '';
+        for (const r of rows) {
+          const tr = document.createElement('tr');
+          tr.innerHTML =
+            '<td>' +
+              '<div style="font-weight:600">' + escapeHtml(r.first_name + ' ' + r.last_name) + '</div>' +
+              '<div class="mono" style="font-size:12px;color:#888">' + escapeHtml(r.email) + '</div>' +
+            '</td>' +
+            '<td>' + escapeHtml(r.country || '—') + '</td>' +
+            '<td class="right mono">' + (r.attendance_pct === null ? '—' : r.attendance_pct + '%') + '</td>' +
+            '<td class="right mono">' + (r.missed_count || 0) + '</td>' +
+            '<td class="right mono">' + (r.elapsed_sessions ? Math.round((r.elapsed_sessions - r.missed_count) / r.elapsed_sessions * 100) + '%' : '—') + '</td>' +
+            '<td><span class="risk-chip ' + r.risk_status + '">' + r.risk_status + '</span></td>';
+          tbody.appendChild(tr);
+        }
+        $('atrisk-table').hidden = false;
+      }
+
+      function escapeHtml(s) {
+        return String(s ?? '')
+          .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+          .replace(/"/g,'&quot;');
+      }
+    })();
+  </script>
+</AppShell>

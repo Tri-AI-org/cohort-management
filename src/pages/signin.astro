@@ -1,0 +1,116 @@
+---
+/**
+ * /signin
+ *
+ * Email-only sign-in for students and facilitators. Submitting
+ * triggers a magic link via /api/auth/request-link. The page
+ * always shows the generic "if your email is enrolled, check
+ * your inbox" message — never confirms or denies enrolment.
+ *
+ * Organisers reach their own login via the link at the bottom.
+ *
+ * Optional ?cohort=N query param hints which cohort the magic
+ * link should be scoped to. If omitted, the API picks the most
+ * recent active enrolment.
+ */
+import Base from '../layouts/Base.astro';
+---
+<Base title="Sign in · TRI AI Cohort Portal" noFooter={true}>
+  <div class="auth-page">
+    <div class="auth-card">
+      <h1>Sign in</h1>
+      <p class="lede">
+        Enter the email address you applied with. We'll send you a one-time
+        sign-in link.
+      </p>
+
+      <div class="auth-msg ok" id="ok-msg" hidden>
+        If your email is enrolled, a sign-in link is on its way. Check your
+        inbox in the next minute (and spam, just in case).
+      </div>
+      <div class="auth-msg err" id="err-msg" hidden></div>
+
+      <form id="signin-form" novalidate>
+        <div class="field">
+          <label for="email">Email</label>
+          <input
+            type="email"
+            id="email"
+            name="email"
+            autocomplete="email"
+            required
+            autofocus
+            placeholder="you@example.com"
+          />
+        </div>
+        <button type="submit" class="btn-primary" id="submit-btn">
+          Email me a sign-in link
+        </button>
+      </form>
+
+      <p class="alt-link">
+        Are you an organiser? <a href="/admin/login">Sign in here →</a>
+      </p>
+    </div>
+  </div>
+
+  <script is:inline>
+    (function () {
+      const form    = document.getElementById('signin-form');
+      const emailEl = document.getElementById('email');
+      const btn     = document.getElementById('submit-btn');
+      const okMsg   = document.getElementById('ok-msg');
+      const errMsg  = document.getElementById('err-msg');
+
+      // Pull ?cohort=N from URL if present, so the API can scope
+      // the magic link to that specific cohort.
+      const params = new URLSearchParams(location.search);
+      const cohort = params.get('cohort');
+
+      function showOk() {
+        okMsg.hidden = false;
+        errMsg.hidden = true;
+      }
+      function showErr(text) {
+        errMsg.textContent = text;
+        errMsg.hidden = false;
+        okMsg.hidden = true;
+      }
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const email = emailEl.value.trim().toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          showErr('Please enter a valid email address.');
+          return;
+        }
+        btn.disabled = true;
+        btn.textContent = 'Sending…';
+        try {
+          const body = cohort ? { email, cohort: Number(cohort) } : { email };
+          const res = await fetch('/api/auth/request-link', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify(body),
+          });
+          // The endpoint always returns 200 OK with a generic message
+          // (whether the email matched or not). We just trust the
+          // server and show the success state.
+          if (res.ok) {
+            showOk();
+            form.reset();
+          } else {
+            const data = await res.json().catch(() => ({}));
+            showErr(data.error || 'Could not send the link right now. Please try again in a minute.');
+          }
+        } catch (err) {
+          showErr('Network error. Please check your connection and try again.');
+        } finally {
+          btn.disabled = false;
+          btn.textContent = 'Email me a sign-in link';
+        }
+      });
+    })();
+  </script>
+</Base>

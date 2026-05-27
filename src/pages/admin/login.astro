@@ -1,0 +1,117 @@
+---
+/**
+ * /admin/login
+ *
+ * Organiser email + password sign-in. On success, the API sets
+ * an HttpOnly session cookie and we redirect to either:
+ *   - the stashed post_login_redirect (set by AppShell when it
+ *     gates a page the user wasn't authorised for), or
+ *   - /admin/ as a default landing page.
+ */
+import Base from '../../layouts/Base.astro';
+---
+<Base title="Organiser sign in · TRI AI Cohort Portal" noFooter={true}>
+  <div class="auth-page">
+    <div class="auth-card">
+      <h1>Organiser sign in</h1>
+      <p class="lede">
+        For TRI AI Saturdays team members. Students should use the
+        <a href="/signin">student sign-in</a>.
+      </p>
+
+      <div class="auth-msg err" id="err-msg" hidden></div>
+
+      <form id="login-form" novalidate>
+        <div class="field">
+          <label for="email">Email</label>
+          <input
+            type="email"
+            id="email"
+            name="email"
+            autocomplete="email"
+            required
+            autofocus
+          />
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input
+            type="password"
+            id="password"
+            name="password"
+            autocomplete="current-password"
+            required
+          />
+        </div>
+        <button type="submit" class="btn-primary" id="submit-btn">
+          Sign in
+        </button>
+      </form>
+
+      <p class="alt-link">
+        Forgot your password? Email
+        <a href="mailto:cohorts@tri-ai.org">cohorts@tri-ai.org</a>.
+      </p>
+    </div>
+  </div>
+
+  <script is:inline>
+    (function () {
+      const form    = document.getElementById('login-form');
+      const emailEl = document.getElementById('email');
+      const pwdEl   = document.getElementById('password');
+      const btn     = document.getElementById('submit-btn');
+      const errMsg  = document.getElementById('err-msg');
+
+      function showErr(text) {
+        errMsg.textContent = text;
+        errMsg.hidden = false;
+      }
+      function clearErr() {
+        errMsg.hidden = true;
+        errMsg.textContent = '';
+      }
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        clearErr();
+        const email = emailEl.value.trim().toLowerCase();
+        const password = pwdEl.value;
+        if (!email || !password) {
+          showErr('Email and password are both required.');
+          return;
+        }
+        btn.disabled = true;
+        btn.textContent = 'Signing in…';
+        try {
+          const res = await fetch('/api/auth/organiser-login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ email, password }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (res.ok && data.ok) {
+            // Where to send them? Stashed redirect wins; else /admin/.
+            let dest = '/admin/';
+            try {
+              const stashed = sessionStorage.getItem('post_login_redirect');
+              if (stashed && stashed.startsWith('/')) {
+                dest = stashed;
+                sessionStorage.removeItem('post_login_redirect');
+              }
+            } catch (e) {}
+            location.replace(dest);
+          } else {
+            showErr(data.error || 'Sign-in failed. Try again.');
+          }
+        } catch (err) {
+          showErr('Network error. Please try again.');
+        } finally {
+          btn.disabled = false;
+          btn.textContent = 'Sign in';
+        }
+      });
+    })();
+  </script>
+</Base>

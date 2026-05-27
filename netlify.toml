@@ -74,6 +74,13 @@
   to     = "/.netlify/functions/auth-organiser-login"
   status = 200
 
+# /api/session — used by every page to know who's signed in (and
+# by the signout button). GET returns the session, DELETE clears it.
+[[redirects]]
+  from   = "/api/session"
+  to     = "/.netlify/functions/session"
+  status = 200
+
 [[redirects]]
   from   = "/api/attendance"
   to     = "/.netlify/functions/attendance-api"

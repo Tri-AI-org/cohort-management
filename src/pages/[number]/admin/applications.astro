@@ -1,0 +1,477 @@
+---
+/**
+ * /[number]/admin/applications
+ *
+ * Review applications: list, filter, sort, bulk-accept/reject.
+ * Side-panel for detail view.
+ */
+import AppShell from '../../../layouts/AppShell.astro';
+import { getCollection } from 'astro:content';
+
+export async function getStaticPaths() {
+  const cohorts = await getCollection('cohorts');
+  return cohorts
+    .filter(c => c.data.portal?.enabled)
+    .map(c => ({
+      params: { number: String(c.data.number) },
+      props:  { cohort: c },
+    }));
+}
+
+const { cohort } = Astro.props;
+const cohortNumber = cohort.data.number;
+---
+<AppShell
+  title={`Applications · Cohort ${cohortNumber}`}
+  requiredKind="organiser"
+  cohortNumber={cohortNumber}
+>
+  <div class="container app-page">
+    <div style="display:flex; align-items:baseline; justify-content:space-between; gap:var(--space-3); margin-bottom:var(--space-3); flex-wrap:wrap;">
+      <div>
+        <h1>Applications</h1>
+        <p class="lede" id="summary">Loading…</p>
+      </div>
+      <nav class="admin-nav">
+        <a href={`/${cohortNumber}/admin/`}>← Dashboard</a>
+        <a href={`/${cohortNumber}/admin/import`}>Import CSV →</a>
+      </nav>
+    </div>
+
+    <div id="error" class="auth-msg err" hidden></div>
+
+    <div class="toolbar">
+      <input type="search" id="search" placeholder="Search name or email…" />
+      <select id="filter-status">
+        <option value="">All statuses</option>
+        <option value="submitted">Submitted</option>
+        <option value="reviewing">Reviewing</option>
+        <option value="accepted">Accepted</option>
+        <option value="rejected">Rejected</option>
+        <option value="waitlisted">Waitlisted</option>
+        <option value="withdrawn">Withdrawn</option>
+      </select>
+      <select id="sort">
+        <option value="submitted_at-desc">Newest first</option>
+        <option value="submitted_at-asc">Oldest first</option>
+        <option value="prereq_score-desc">Prereq score: high to low</option>
+        <option value="prereq_score-asc">Prereq score: low to high</option>
+      </select>
+      <span class="toolbar-count" id="count">0 results</span>
+      <span style="flex:1"></span>
+      <button class="btn" id="bulk-accept" disabled>Accept selected</button>
+      <button class="btn" id="bulk-reject" disabled>Reject selected</button>
+    </div>
+
+    <table class="data-table" id="apps-table">
+      <thead>
+        <tr>
+          <th style="width:32px"><input type="checkbox" id="select-all" /></th>
+          <th>Applicant</th>
+          <th>Country</th>
+          <th>Hours/wk</th>
+          <th class="right">Prereq</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="apps-tbody">
+        <tr><td colspan="7" class="empty">Loading…</td></tr>
+      </tbody>
+    </table>
+
+    <div class="pagination">
+      <span id="page-info">—</span>
+      <div>
+        <button id="prev-btn" disabled>← Prev</button>
+        <button id="next-btn" disabled>Next →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Application detail drawer -->
+  <div class="drawer" id="drawer" hidden>
+    <div class="drawer-backdrop" data-drawer-close></div>
+    <div class="drawer-panel">
+      <header class="drawer-head">
+        <h2 id="drawer-title">Application</h2>
+        <button class="btn-link" data-drawer-close>Close</button>
+      </header>
+      <div class="drawer-body" id="drawer-body">Loading…</div>
+      <footer class="drawer-foot" id="drawer-foot" hidden>
+        <button class="btn primary" data-action="accepted">Accept</button>
+        <button class="btn" data-action="rejected">Reject</button>
+        <button class="btn" data-action="waitlisted">Waitlist</button>
+        <label style="display:inline-flex;align-items:center;gap:6px;margin-left:auto;font-size:var(--t-small)">
+          <input type="checkbox" id="send-email" /> Send email
+        </label>
+      </footer>
+    </div>
+  </div>
+
+  <style>
+    .admin-nav { display:flex; gap:16px; flex-wrap:wrap; font-size:var(--t-small); }
+    .admin-nav a {
+      color: var(--teaching); text-decoration: none;
+      padding: 6px 10px; border-radius: 6px;
+    }
+    .admin-nav a:hover { background: var(--teaching-light); }
+
+    .drawer { position: fixed; inset: 0; z-index: 100; }
+    .drawer-backdrop {
+      position: absolute; inset: 0;
+      background: rgba(0,0,0,0.4);
+      animation: fade-in 0.15s;
+    }
+    .drawer-panel {
+      position: absolute; top: 0; right: 0; bottom: 0;
+      width: min(560px, 100vw);
+      background: #fff;
+      box-shadow: -4px 0 24px rgba(0,0,0,0.15);
+      display: flex; flex-direction: column;
+      animation: slide-in 0.2s;
+    }
+    .drawer-head, .drawer-foot {
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border, rgba(0,0,0,0.08));
+      display: flex; align-items: center; justify-content: space-between;
+      gap: var(--space-3);
+    }
+    .drawer-foot {
+      border-bottom: 0; border-top: 1px solid var(--border, rgba(0,0,0,0.08));
+      flex-wrap: wrap;
+    }
+    .drawer-head h2 { margin: 0; font-size: 18px; }
+    .drawer-body {
+      flex: 1; overflow-y: auto; padding: 20px 24px;
+      font-size: 14px; line-height: 1.55;
+    }
+    .drawer-body dt {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+      color: var(--text-dim, #888); font-weight: 600; margin-top: 14px;
+    }
+    .drawer-body dd { margin: 4px 0 0; }
+    .drawer-body .prereq-grid {
+      display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;
+      margin-top: 6px;
+    }
+    .drawer-body .prereq-cell {
+      background: var(--bg-soft, #f5f5f5);
+      border-radius: 6px;
+      padding: 8px 6px;
+      text-align: center;
+    }
+    .drawer-body .prereq-cell .pc-label {
+      font-size: 10px; text-transform: uppercase;
+      color: var(--text-dim, #888);
+    }
+    .drawer-body .prereq-cell .pc-val {
+      font-family: var(--font-mono);
+      font-weight: 700; font-size: 18px;
+    }
+    @keyframes slide-in { from { transform: translateX(100%); } to { transform: none; } }
+    @keyframes fade-in  { from { opacity: 0; } to { opacity: 1; } }
+  </style>
+
+  <script is:inline define:vars={{ cohortNumber }}>
+    (function () {
+      const $ = (id) => document.getElementById(id);
+      const state = {
+        page: 0, pageSize: 50,
+        search: '', status: '', sort: 'submitted_at', dir: 'desc',
+        rows: [], total: 0,
+        selected: new Set(),
+        detailId: null,
+      };
+
+      // ── Wire up the toolbar ────────────────────────────────
+      $('search').addEventListener('input', debounce(() => {
+        state.search = $('search').value.trim();
+        state.page = 0;
+        load();
+      }, 250));
+      $('filter-status').addEventListener('change', () => {
+        state.status = $('filter-status').value;
+        state.page = 0;
+        load();
+      });
+      $('sort').addEventListener('change', () => {
+        const [field, dir] = $('sort').value.split('-');
+        state.sort = field; state.dir = dir;
+        load();
+      });
+      $('prev-btn').addEventListener('click', () => { if (state.page > 0) { state.page--; load(); } });
+      $('next-btn').addEventListener('click', () => { state.page++; load(); });
+      $('select-all').addEventListener('change', (e) => {
+        if (e.target.checked) state.rows.forEach(r => state.selected.add(r.id));
+        else state.selected.clear();
+        renderRows();
+        updateBulk();
+      });
+      $('bulk-accept').addEventListener('click', () => bulkAction('accepted'));
+      $('bulk-reject').addEventListener('click', () => bulkAction('rejected'));
+
+      // Drawer close
+      document.querySelectorAll('[data-drawer-close]').forEach(el => {
+        el.addEventListener('click', () => { $('drawer').hidden = true; state.detailId = null; });
+      });
+      // Detail accept/reject from drawer
+      $('drawer-foot').querySelectorAll('[data-action]').forEach(b => {
+        b.addEventListener('click', async () => {
+          if (!state.detailId) return;
+          await setStatus([state.detailId], b.dataset.action, $('send-email').checked);
+          $('drawer').hidden = true;
+          state.detailId = null;
+          load();
+        });
+      });
+
+      load();
+      loadSummary();
+
+      // ── Loaders ────────────────────────────────────────────
+      async function load() {
+        $('apps-tbody').innerHTML = '<tr><td colspan="7" class="empty">Loading…</td></tr>';
+        try {
+          const res = await fetch('/api/applications/review', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+              action: 'list',
+              cohort: cohortNumber,
+              search: state.search || undefined,
+              status: state.status || undefined,
+              sort: state.sort, dir: state.dir,
+              limit: state.pageSize,
+              offset: state.page * state.pageSize,
+            }),
+          });
+          if (res.status === 401) { location.replace('/admin/login'); return; }
+          const data = await res.json();
+          if (!res.ok) {
+            $('apps-tbody').innerHTML = '<tr><td colspan="7" class="empty">' +
+              escapeHtml(data.error || 'Failed to load.') + '</td></tr>';
+            return;
+          }
+          state.rows = data.rows || [];
+          state.total = data.total || 0;
+          renderRows();
+          renderPagination();
+        } catch (err) {
+          $('apps-tbody').innerHTML = '<tr><td colspan="7" class="empty">Network error.</td></tr>';
+        }
+      }
+
+      async function loadSummary() {
+        try {
+          const res = await fetch('/api/dashboard', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ action: 'applications_summary', cohort: cohortNumber }),
+          });
+          if (!res.ok) return;
+          const data = await res.json();
+          const c = data.counts || {};
+          const total = Object.values(c).reduce((a, b) => a + b, 0);
+          const parts = [];
+          parts.push(total + ' total');
+          if (c.submitted)  parts.push(c.submitted + ' submitted');
+          if (c.accepted)   parts.push(c.accepted + ' accepted');
+          if (c.rejected)   parts.push(c.rejected + ' rejected');
+          if (c.waitlisted) parts.push(c.waitlisted + ' waitlisted');
+          $('summary').textContent = parts.join(' · ');
+        } catch (e) {}
+      }
+
+      // ── Renderers ──────────────────────────────────────────
+      function renderRows() {
+        const tbody = $('apps-tbody');
+        if (state.rows.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="7" class="empty">No applications match.</td></tr>';
+          $('count').textContent = '0 results';
+          return;
+        }
+        tbody.innerHTML = '';
+        for (const r of state.rows) {
+          const tr = document.createElement('tr');
+          const isSel = state.selected.has(r.id);
+          tr.innerHTML =
+            '<td><input type="checkbox" data-id="' + r.id + '" ' + (isSel ? 'checked' : '') + '></td>' +
+            '<td>' +
+              '<div style="font-weight:600">' + escapeHtml((r.first_name||'') + ' ' + (r.last_name||'')) + '</div>' +
+              '<div class="mono" style="font-size:12px;color:#888">' + escapeHtml(r.email) + '</div>' +
+            '</td>' +
+            '<td>' + escapeHtml(r.country || '—') + '</td>' +
+            '<td>' + escapeHtml(r.hours_per_week || '—') + '</td>' +
+            '<td class="right mono">' + (r.prereq_score ?? '—') + '/25</td>' +
+            '<td><span class="status-chip ' + r.status + '">' + r.status + '</span></td>' +
+            '<td><button class="btn-link" data-detail="' + r.id + '">View</button></td>';
+          tbody.appendChild(tr);
+        }
+        // Wire up checkboxes
+        tbody.querySelectorAll('input[type=checkbox]').forEach(cb => {
+          cb.addEventListener('change', () => {
+            if (cb.checked) state.selected.add(cb.dataset.id);
+            else state.selected.delete(cb.dataset.id);
+            updateBulk();
+          });
+        });
+        // Wire up detail buttons
+        tbody.querySelectorAll('[data-detail]').forEach(b => {
+          b.addEventListener('click', () => openDetail(b.dataset.detail));
+        });
+        $('count').textContent = state.total + ' result' + (state.total === 1 ? '' : 's');
+      }
+
+      function renderPagination() {
+        const start = state.page * state.pageSize + 1;
+        const end = Math.min((state.page + 1) * state.pageSize, state.total);
+        $('page-info').textContent = state.total === 0
+          ? '—'
+          : 'Showing ' + start + '–' + end + ' of ' + state.total;
+        $('prev-btn').disabled = state.page === 0;
+        $('next-btn').disabled = (state.page + 1) * state.pageSize >= state.total;
+      }
+
+      function updateBulk() {
+        const n = state.selected.size;
+        $('bulk-accept').disabled = n === 0;
+        $('bulk-reject').disabled = n === 0;
+        $('bulk-accept').textContent = n > 0 ? 'Accept ' + n + ' selected' : 'Accept selected';
+        $('bulk-reject').textContent = n > 0 ? 'Reject ' + n + ' selected' : 'Reject selected';
+      }
+
+      async function bulkAction(status) {
+        const ids = [...state.selected];
+        if (ids.length === 0) return;
+        const verb = status === 'accepted' ? 'Accept' : 'Reject';
+        const sendEmail = confirm(
+          verb + ' ' + ids.length + ' application' + (ids.length === 1 ? '' : 's') + '?\n\n' +
+          'OK = ' + verb.toLowerCase() + ' AND send notification emails\n' +
+          'Cancel = abort'
+        );
+        if (sendEmail === null) return;       // some browsers
+        if (sendEmail === false) return;      // user cancelled
+        await setStatus(ids, status, true);
+        state.selected.clear();
+        load();
+      }
+
+      async function setStatus(ids, status, sendEmail) {
+        try {
+          const res = await fetch('/api/applications/review', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+              action: 'set_status', ids, status, sendEmail,
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            alert('Failed: ' + (data.error || 'unknown error'));
+            return;
+          }
+          loadSummary();
+        } catch (err) {
+          alert('Network error.');
+        }
+      }
+
+      // ── Drawer ─────────────────────────────────────────────
+      async function openDetail(id) {
+        state.detailId = id;
+        $('drawer').hidden = false;
+        $('drawer-body').textContent = 'Loading…';
+        $('drawer-foot').hidden = true;
+        try {
+          const res = await fetch('/api/applications/review', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ action: 'detail', id }),
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            $('drawer-body').textContent = data.error || 'Failed to load.';
+            return;
+          }
+          renderDetail(data.application);
+          $('drawer-foot').hidden = false;
+        } catch (err) {
+          $('drawer-body').textContent = 'Network error.';
+        }
+      }
+
+      function renderDetail(a) {
+        $('drawer-title').textContent = (a.first_name || '') + ' ' + (a.last_name || '');
+        const dl = document.createElement('dl');
+
+        function add(label, value) {
+          if (value === null || value === undefined || value === '') return;
+          const dt = document.createElement('dt'); dt.textContent = label;
+          const dd = document.createElement('dd'); dd.textContent = String(value);
+          dl.append(dt, dd);
+        }
+
+        add('Status',  a.status);
+        add('Email',   a.email);
+        add('Country', a.country);
+        add('City',    a.city);
+        add('GitHub',  a.github_url);
+        add('Gender',  a.gender);
+        add('Age range', a.age_range);
+
+        const dt = document.createElement('dt'); dt.textContent = 'Prerequisites';
+        const dd = document.createElement('dd');
+        const grid = document.createElement('div'); grid.className = 'prereq-grid';
+        const pre = [
+          ['Python',  a.prereq_python],
+          ['Stats',   a.prereq_statistics],
+          ['LinAlg',  a.prereq_linear_alg],
+          ['NumPy',   a.prereq_numpy_pandas],
+          ['ML',      a.prereq_ml_concepts],
+        ];
+        for (const [lbl, val] of pre) {
+          const cell = document.createElement('div');
+          cell.className = 'prereq-cell';
+          cell.innerHTML = '<div class="pc-label">' + lbl + '</div><div class="pc-val">' + (val ?? '—') + '</div>';
+          grid.appendChild(cell);
+        }
+        dd.appendChild(grid);
+        const total = document.createElement('div');
+        total.style.cssText = 'text-align:center;margin-top:8px;font-size:13px;color:#666;';
+        total.textContent = 'Total: ' + (a.prereq_score ?? '—') + ' / 25';
+        dd.appendChild(total);
+        dl.append(dt, dd);
+
+        add('Current role',     a.applicant_role);
+        add('Field of work',    a.field_of_work);
+        add('Job title',        a.job_title);
+        add('Hours/week',       a.hours_per_week);
+        add('16-week commit',   a.can_commit_16w === true ? 'yes' : a.can_commit_16w === false ? 'no' : null);
+        add('Previous cohort?', a.previous_participant === true ? 'yes' : a.previous_participant === false ? 'no' : null);
+        add('Motivation',       a.motivation);
+        add('Community problem', a.community_problem);
+        add('Post-programme goals', a.post_programme_goals);
+        add('Project description', a.project_description);
+        add('Leadership',       a.leadership_description);
+        add('Heard about us',   a.heard_about_us);
+        add('Submitted',        a.submitted_at);
+
+        const body = $('drawer-body');
+        body.innerHTML = '';
+        body.appendChild(dl);
+      }
+
+      function debounce(fn, ms) {
+        let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+      }
+      function escapeHtml(s) {
+        return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      }
+    })();
+  </script>
+</AppShell>

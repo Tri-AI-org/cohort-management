@@ -1,0 +1,236 @@
+---
+/**
+ * /[number]/me — student's personal status page.
+ *
+ * What they see:
+ *   - Greeting with their name
+ *   - Big attendance % with progress bar showing where they are
+ *     vs the certificate threshold
+ *   - Top stats: attended, missed, sessions to go
+ *   - Week-by-week history with status chips
+ *
+ * Auth: requires a 'student' or 'facilitator' kind session whose
+ * cohortId matches this URL's cohort. AppShell handles the redirect
+ * if no session. The /api/student/me endpoint double-checks.
+ */
+import AppShell from '../../layouts/AppShell.astro';
+import { getCollection } from 'astro:content';
+
+export async function getStaticPaths() {
+  const cohorts = await getCollection('cohorts');
+  return cohorts
+    .filter(c => c.data.portal?.enabled)
+    .map(c => ({
+      params: { number: String(c.data.number) },
+      props:  { cohort: c },
+    }));
+}
+
+const { cohort } = Astro.props;
+const cohortNumber = cohort.data.number;
+---
+<AppShell
+  title={`Your status · Cohort ${cohortNumber}`}
+  requiredKind="student"
+  cohortNumber={cohortNumber}
+>
+  <div class="container app-page">
+    <div id="loading" class="me-loading">
+      <p class="lede">Loading your status…</p>
+    </div>
+
+    <div id="error" class="auth-msg err" hidden></div>
+
+    <div id="content" hidden>
+      <!-- Hero block: greeting + big % -->
+      <div class="me-hero">
+        <h1 class="me-greeting">Hi <span id="me-name">there</span>,</h1>
+        <p class="me-status mono">
+          COHORT <span id="me-cohort">10</span> · <span id="me-risk-label">on track</span>
+        </p>
+
+        <div class="me-progress">
+          <div class="me-pct">
+            <span id="me-pct-value">—</span><span class="pct-sym">%</span>
+          </div>
+          <div class="me-pct-target">
+            attended of <span id="me-sessions-done">0</span> elapsed sessions ·
+            <span id="me-cert-target">60</span>% for certificate
+          </div>
+        </div>
+
+        <div class="me-bar">
+          <div class="me-bar-fill" id="me-bar-fill" style="width: 0%"></div>
+          <div class="me-bar-target" id="me-bar-target" style="left: 60%"></div>
+        </div>
+        <div class="me-bar-legend">
+          <span>0%</span>
+          <span id="me-target-legend">Certificate target — 60%</span>
+          <span>100%</span>
+        </div>
+      </div>
+
+      <!-- Top stats -->
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-label">Attended</div>
+          <div class="stat-value ok" id="stat-attended">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Missed</div>
+          <div class="stat-value" id="stat-missed">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Sessions to go</div>
+          <div class="stat-value dim" id="stat-togo">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Certificate</div>
+          <div class="stat-value" id="stat-cert">—</div>
+          <div class="stat-sub" id="stat-cert-sub"></div>
+        </div>
+      </div>
+
+      <h2 style="font-size: var(--t-h2); margin: var(--space-5) 0 var(--space-3);">
+        Your week-by-week
+      </h2>
+      <ul class="weeks-list" id="weeks-list">
+        <!-- populated by JS -->
+      </ul>
+    </div>
+  </div>
+
+  <script is:inline define:vars={{ cohortNumber }}>
+    (async function () {
+      const $ = (id) => document.getElementById(id);
+      const loading = $('loading');
+      const content = $('content');
+      const errBox  = $('error');
+
+      function showError(text) {
+        loading.hidden = true;
+        errBox.textContent = text;
+        errBox.hidden = false;
+      }
+
+      try {
+        const res = await fetch('/api/student/me', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ cohort: cohortNumber }),
+        });
+        if (res.status === 401) {
+          // Should have been caught by AppShell but in case the session
+          // expired between page load and this fetch:
+          location.replace('/signin?cohort=' + cohortNumber);
+          return;
+        }
+        const data = await res.json();
+        if (!res.ok) {
+          showError(data.error || 'Could not load your status.');
+          return;
+        }
+        render(data);
+        loading.hidden = true;
+        content.hidden = false;
+      } catch (err) {
+        showError('Network error. Please refresh and try again.');
+      }
+
+      function render(d) {
+        const me  = d.me      || {};
+        const s   = d.summary || {};
+        const wks = d.weeks   || [];
+
+        $('me-name').textContent   = (me.name || me.email || 'there').split(' ')[0];
+        $('me-cohort').textContent = cohortNumber;
+
+        const pct = (s.attendancePct ?? null);
+        $('me-pct-value').textContent = pct === null ? '—' : String(pct);
+
+        const target = s.certThreshold ?? 60;
+        $('me-cert-target').textContent = target;
+        $('me-target-legend').textContent = 'Certificate target — ' + target + '%';
+        $('me-bar-target').style.left = target + '%';
+
+        if (pct !== null) {
+          $('me-bar-fill').style.width = Math.min(100, pct) + '%';
+        }
+
+        $('me-sessions-done').textContent = s.elapsedSessions || 0;
+
+        // Risk label
+        const rl = $('me-risk-label');
+        if (s.riskStatus === 'critical') {
+          rl.textContent = 'CERTIFICATE AT RISK';
+        } else if (s.riskStatus === 'warning') {
+          rl.textContent = 'WATCH YOUR ATTENDANCE';
+        } else {
+          rl.textContent = 'ON TRACK';
+        }
+
+        // Stat cards
+        $('stat-attended').textContent = s.attendedCount ?? 0;
+        $('stat-missed').textContent   = s.missedCount   ?? 0;
+        const toGo = Math.max(0, (s.countableSessions ?? 0) - (s.elapsedSessions ?? 0));
+        $('stat-togo').textContent = toGo;
+        const onTrack = !!s.onTrackForCertificate;
+        $('stat-cert').textContent = onTrack ? '✓' : '·';
+        $('stat-cert').className = 'stat-value ' + (onTrack ? 'ok' : 'dim');
+        $('stat-cert-sub').textContent = onTrack
+          ? 'On track for certificate'
+          : pct !== null
+            ? 'Need ' + Math.max(0, target - pct) + ' more %-points'
+            : 'Cohort not started yet';
+
+        // Weeks list
+        const list = $('weeks-list');
+        list.innerHTML = '';
+        for (const w of wks) {
+          const li = document.createElement('li');
+          const today = new Date();
+          const wDate = w.session_date ? new Date(w.session_date) : null;
+          const isPast = wDate && wDate < today;
+          const isFuture = wDate && wDate > today;
+
+          let statusChip;
+          if (w.is_break) {
+            statusChip = '<span class="wk-status break">Break</span>';
+          } else if (w.status) {
+            statusChip = '<span class="wk-status ' + w.status + '">' + w.status + '</span>';
+          } else if (isPast) {
+            statusChip = '<span class="wk-status pending">Not submitted</span>';
+          } else if (isFuture) {
+            statusChip = '<span class="wk-status upcoming">Upcoming</span>';
+          } else {
+            statusChip = '<span class="wk-status upcoming">Today</span>';
+          }
+
+          li.innerHTML =
+            '<div class="wk-num">W' + (w.week_number || '—') + '</div>' +
+            '<div style="flex:1">' +
+              '<div class="wk-topic">' + escapeHtml(w.topic || 'Session') + '</div>' +
+              (w.session_date
+                ? '<div class="wk-date">' + formatDate(w.session_date) + '</div>'
+                : '') +
+            '</div>' +
+            statusChip;
+          list.appendChild(li);
+        }
+      }
+
+      function escapeHtml(s) {
+        return String(s || '')
+          .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+          .replace(/"/g,'&quot;');
+      }
+      function formatDate(s) {
+        try {
+          const d = new Date(s);
+          return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+        } catch { return s; }
+      }
+    })();
+  </script>
+</AppShell>

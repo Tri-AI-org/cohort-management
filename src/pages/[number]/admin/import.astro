@@ -33,6 +33,12 @@ const cohortNumber = cohort.data.number;
           Download the responses sheet from Google Sheets (File → Download → CSV),
           then upload it here. You'll see a preview before anything is written.
         </p>
+        <p class="template-links">
+          Just testing?
+          <a href="/applications-template.csv" download>Download a sample CSV (5 fake rows)</a>
+          ·
+          <a href="/applications-template-empty.csv" download>Download an empty template (headers only)</a>
+        </p>
       </div>
       <nav class="admin-nav">
         <a href={`/${cohortNumber}/admin/applications`}>← Applications</a>
@@ -133,6 +139,16 @@ const cohortNumber = cohort.data.number;
       background: #fff; border: 1px solid var(--border, rgba(0,0,0,0.08));
       border-radius: 12px; padding: 24px;
     }
+    .template-links {
+      font-size: var(--t-small);
+      color: var(--text-dim, #777);
+      margin: 8px 0 0;
+    }
+    .template-links a {
+      color: var(--teaching);
+      text-decoration: underline;
+    }
+    .template-links a:hover { color: #E55400; }
     .file-drop {
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       gap: 12px; padding: 40px 24px;

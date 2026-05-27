@@ -14,7 +14,7 @@
 
 import { query } from './db.mjs';
 
-const ALLOWED_ORIGIN = 'https://cohort.tri-ai.org';
+const ALLOWED_ORIGIN = 'https://triai-cohort.netlify.app';
 
 export const CORS = {
   'Access-Control-Allow-Origin':      ALLOWED_ORIGIN,

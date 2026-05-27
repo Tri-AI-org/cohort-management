@@ -37,7 +37,12 @@ import {
   json, preflight, parseJsonBody, requireEnv, audit,
 } from './_lib/http.mjs';
 
-const INTER_EMAIL_MS = 700;          // ~85/min — under Gmail rate-limit
+const INTER_EMAIL_MS = 1200;         // ~50/min — under Gmail's unofficial
+                                     // burst throttle. 3000 sends → 60min.
+                                     // A 15-min Netlify Background function
+                                     // can do ~750 per run; for bigger blasts
+                                     // split into batches across multiple
+                                     // invocations of this endpoint.
 
 export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return preflight();

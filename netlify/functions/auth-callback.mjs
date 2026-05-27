@@ -63,6 +63,16 @@ export const handler = async (event) => {
   const token = event.queryStringParameters?.t;
   if (!token) return htmlError('Missing token', 'The sign-in link is incomplete. Please request a new one.');
 
+  // Optional ?next=/some/path — where to send the user after sign-in.
+  // Used by reminder emails (next=/10/check-in) and onboarding emails
+  // (default destinations apply if absent). We accept ONLY same-site
+  // paths starting with '/' — never absolute URLs — to prevent
+  // open-redirect attacks.
+  let nextPath = event.queryStringParameters?.next;
+  if (nextPath && (!nextPath.startsWith('/') || nextPath.startsWith('//'))) {
+    nextPath = null;
+  }
+
   const tokenHash = hashMagicToken(token);
   const ip = getClientIp(event);
   const ua = event.headers['user-agent'] || '';
@@ -137,9 +147,15 @@ export const handler = async (event) => {
   );
   const cohortNumber = cohortRow[0]?.number;
 
-  // Build the session.
+  // Build the session. The session `kind` matches the user's role on
+  // this cohort — so a facilitator gets a 'facilitator' session, not
+  // a 'student' one (which would later bounce them off /facilitator
+  // pages). Both roles get the long-lived 30-day cookie because
+  // (a) magic-link emails are expensive at our volume and (b) the
+  // tokens are short-lived anyway.
+  const sessionKind = result.role === 'facilitator' ? 'facilitator' : 'student';
   const token2 = newSessionToken({
-    kind:     'student',
+    kind:     sessionKind,
     email:    result.email,
     personId: result.personId,
     cohortId: result.cohortId,
@@ -149,16 +165,23 @@ export const handler = async (event) => {
   await audit({
     action: 'auth_callback_success',
     actorEmail: result.email,
-    actorKind: result.role === 'facilitator' ? 'facilitator' : 'student',
+    actorKind: sessionKind,
     cohortId: result.cohortId,
     ip, userAgent: ua,
   });
 
-  // 302 to /[number]/me (student's status page) or /[number]/facilitator
-  // depending on role.
-  const dest = result.role === 'facilitator'
-    ? `${process.env.PORTAL_BASE_URL.replace(/\/$/, '')}/${cohortNumber}/facilitator`
-    : `${process.env.PORTAL_BASE_URL.replace(/\/$/, '')}/${cohortNumber}/me`;
+  // 302 to wherever. Priority order:
+  //   1. ?next=/path query param (used by reminder/onboarding emails)
+  //   2. role-default: /me for students, /facilitator for facilitators
+  const portalBase = process.env.PORTAL_BASE_URL.replace(/\/$/, '');
+  let dest;
+  if (nextPath) {
+    dest = portalBase + nextPath;
+  } else if (result.role === 'facilitator') {
+    dest = `${portalBase}/${cohortNumber}/facilitator`;
+  } else {
+    dest = `${portalBase}/${cohortNumber}/me`;
+  }
 
   return {
     statusCode: 302,

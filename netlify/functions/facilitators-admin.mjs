@@ -293,7 +293,11 @@ async function sendOnboardingEmail({ email, firstName, cohortNumber, asLead }) {
     [tokenHash, email, cohort?.id ?? null, expiresAt]
   );
 
-  const signinUrl = `${portalBase}/api/auth/callback?token=${encodeURIComponent(token)}`;
+  // The callback expects ?t= (NOT ?token=) and supports ?next= for
+  // a deep-link destination. For facilitator onboarding we want them
+  // to land on /[n]/facilitator (their dashboard).
+  const next = encodeURIComponent(`/${cohortNumber}/facilitator`);
+  const signinUrl = `${portalBase}/auth/callback?t=${encodeURIComponent(token)}&next=${next}`;
 
   const greeting = firstName && !firstName.includes('@')
     ? firstName

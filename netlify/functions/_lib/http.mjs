@@ -14,7 +14,11 @@
 
 import { query } from './db.mjs';
 
-const ALLOWED_ORIGIN = 'https://triai-cohort.netlify.app';
+// The allowed origin for CORS. Defaults to the production domain.
+// Override via env var for staging deploys or while a Netlify-assigned
+// subdomain (foo.netlify.app) is the active host. Setting it to '*'
+// is rejected — credentialed requests need a specific origin.
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://cohort.tri-ai.org';
 
 export const CORS = {
   'Access-Control-Allow-Origin':      ALLOWED_ORIGIN,
@@ -123,7 +127,15 @@ export async function audit({
 
 export function parseJsonBody(event) {
   try {
-    return JSON.parse(event.body || '{}');
+    // Netlify Functions sometimes deliver the body base64-encoded
+    // (with isBase64Encoded: true on the event). Decode if so before
+    // JSON.parse; otherwise we'd be parsing base64 as JSON and
+    // failing with "Invalid JSON" on perfectly valid requests.
+    let raw = event.body || '{}';
+    if (event.isBase64Encoded) {
+      raw = Buffer.from(raw, 'base64').toString('utf8');
+    }
+    return JSON.parse(raw);
   } catch {
     return null;
   }

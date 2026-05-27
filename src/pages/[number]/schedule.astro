@@ -1,0 +1,186 @@
+---
+/**
+ * Schedule — cohort.tri-ai.org/[number]/schedule
+ *
+ * Renders the full cohort schedule as a vertical timeline. Each week
+ * shows its date, topic, and any links that have been populated
+ * (slides, notebook, recording, readings).
+ */
+import Base from '../../layouts/Base.astro';
+import { getCollection } from 'astro:content';
+import { getCohortState, type CohortSession } from '../../lib/cohort';
+
+export async function getStaticPaths() {
+  const cohorts = await getCollection('cohorts');
+  return cohorts
+    .filter(c => c.data.portal?.enabled)
+    .map(c => ({
+      params: { number: String(c.data.number) },
+      props:  { cohort: c },
+    }));
+}
+
+const { cohort } = Astro.props;
+const d = cohort.data;
+const state = getCohortState(d.schedule);
+const today = new Date();
+
+// For each session, decide its status: past / current / future. This
+// drives the visual treatment in the timeline.
+function sessionStatus(s: CohortSession): 'past' | 'current' | 'future' {
+  if (state.currentSession?.week === s.week) return 'current';
+  const sat = new Date(s.date);
+  return sat < today ? 'past' : 'future';
+}
+---
+
+<Base
+  title={`Schedule — Cohort ${d.number}`}
+  description={`16-week schedule for Cohort ${d.number}.`}
+>
+  <section class="page-hd">
+    <div class="container">
+      <nav class="page-hd-bread">
+        <a href={`/${d.number}/`}>← Cohort {d.number}</a>
+      </nav>
+      <span class="page-hd-eyebrow">Schedule</span>
+      <h1>Cohort {d.number} Schedule</h1>
+      <p class="page-hd-sub">
+        {d.schedule?.length ?? 0} weeks · {d.startDate} – {d.endDate}.
+        Materials appear here as facilitators submit them.
+      </p>
+    </div>
+  </section>
+
+  <section style="padding: var(--space-7) 0;">
+    <div class="container" style="max-width: var(--max-w-prose);">
+      <ol class="timeline">
+        {d.schedule?.map(s => {
+          const status = sessionStatus(s);
+          const hasAnyLink = s.slidesUrl || s.notebookUrl || s.recordingUrl || s.readingsUrl;
+          return (
+            <li class={`tl-item tl-${status}`}>
+              <div class="tl-marker">
+                <span class="tl-week">W{s.week}</span>
+              </div>
+              <div class="tl-content">
+                <div class="tl-head">
+                  <span class="tl-date mono">{s.date}</span>
+                  {status === 'current' && <span class="tl-now-tag">This week</span>}
+                  {s.isBreak && <span class="tl-break-tag">Break</span>}
+                </div>
+                <h2 class="tl-topic">{s.topic}</h2>
+                {hasAnyLink && (
+                  <ul class="tl-links">
+                    {s.slidesUrl    && <li><a href={s.slidesUrl}    target="_blank" rel="noopener">Slides →</a></li>}
+                    {s.notebookUrl  && <li><a href={s.notebookUrl}  target="_blank" rel="noopener">Notebook →</a></li>}
+                    {s.recordingUrl && <li><a href={s.recordingUrl} target="_blank" rel="noopener">Recording →</a></li>}
+                    {s.readingsUrl  && <li><a href={s.readingsUrl}  target="_blank" rel="noopener">Readings →</a></li>}
+                  </ul>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .timeline {
+    list-style: none;
+    padding: 0;
+    position: relative;
+  }
+  .timeline::before {
+    content: '';
+    position: absolute;
+    left: 27px;
+    top: 12px;
+    bottom: 12px;
+    width: 1px;
+    background: var(--line-strong);
+  }
+  .tl-item {
+    display: grid;
+    grid-template-columns: 56px 1fr;
+    gap: var(--space-4);
+    padding: var(--space-5) 0;
+    position: relative;
+  }
+  .tl-marker {
+    width: 56px;
+    height: 56px;
+    border-radius: 999px;
+    background: var(--bg-elev);
+    border: 1px solid var(--line-strong);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1;
+    position: relative;
+  }
+  .tl-week {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: var(--t-mono);
+    color: var(--ink-mid);
+  }
+  .tl-past .tl-marker     { background: var(--bg-soft); border-color: var(--line); }
+  .tl-past .tl-week       { color: var(--ink-faint); }
+  .tl-past .tl-topic      { color: var(--ink-mid); }
+  .tl-current .tl-marker  { background: var(--teaching); border-color: var(--teaching); }
+  .tl-current .tl-week    { color: white; }
+  .tl-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-2);
+  }
+  .tl-date {
+    font-size: var(--t-mono-sm);
+    color: var(--ink-faint);
+  }
+  .tl-now-tag {
+    background: var(--teaching);
+    color: white;
+    font-family: var(--font-mono);
+    font-size: var(--t-mono-sm);
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: var(--r-sm);
+  }
+  .tl-break-tag {
+    background: var(--gold-light);
+    color: var(--gold-deep);
+    font-family: var(--font-mono);
+    font-size: var(--t-mono-sm);
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: var(--r-sm);
+  }
+  .tl-topic {
+    font-size: var(--t-h3);
+    font-weight: 600;
+    margin: 0 0 var(--space-2);
+  }
+  .tl-links {
+    list-style: none;
+    padding: 0;
+    display: flex;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+    margin-top: var(--space-2);
+  }
+  .tl-links a {
+    color: var(--teaching);
+    font-size: var(--t-small);
+    font-weight: 600;
+  }
+</style>

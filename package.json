@@ -1,0 +1,26 @@
+{
+  "name": "cohort-tri-ai",
+  "type": "module",
+  "version": "0.2.0",
+  "private": true,
+  "description": "TRI AI Saturdays cohort portal — attendance, dashboards, applications, and student tooling for active cohorts. Lives at cohort.tri-ai.org.",
+  "scripts": {
+    "dev": "astro dev",
+    "start": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro",
+    "db:migrate": "node db/run-migrations.mjs",
+    "db:seed": "node db/seed.mjs",
+    "db:create-organiser": "node db/create-organiser.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "astro": "^5.1.0",
+    "pg": "^8.13.1",
+    "nodemailer": "^6.9.16",
+    "csv-parse": "^5.6.0"
+  }
+}

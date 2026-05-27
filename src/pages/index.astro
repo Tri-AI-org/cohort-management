@@ -1,0 +1,73 @@
+---
+/**
+ * Root landing — cohort.tri-ai.org/
+ *
+ * Most students arrive at a specific cohort's URL via email
+ * (cohort.tri-ai.org/10/check-in). This page exists for the few
+ * who land at the bare subdomain — they get a clear "pick your
+ * cohort" surface rather than a 404.
+ *
+ * Filter: only show cohorts whose `portal.enabled` is true. Cohorts
+ * 1–8 (completed, no portal) and any future cohort that's still in
+ * preparation get hidden until they're ready.
+ */
+import Base from '../layouts/Base.astro';
+import { getCollection } from 'astro:content';
+
+const cohorts = await getCollection('cohorts');
+const visible = cohorts
+  .filter(c => c.data.portal?.enabled)
+  .sort((a, b) => b.data.number - a.data.number);  // newest first
+
+const hasAny = visible.length > 0;
+---
+
+<Base
+  title="TRI AI Cohort Portal"
+  description="Attendance, schedule, and resources for active TRI AI cohorts."
+>
+  <section class="page-hd">
+    <div class="container">
+      <span class="page-hd-eyebrow">TRI AI Saturdays</span>
+      <h1>Cohort Portal</h1>
+      <p class="page-hd-sub">
+        Attendance, schedule, and resources for active cohorts.
+        Students normally arrive here from a direct link — pick your
+        cohort below if you got here by typing the URL.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <div class="container">
+      {hasAny ? (
+        <ul class="surface-grid">
+          {visible.map(c => {
+            const d = c.data;
+            return (
+              <li class={`surface-card ${d.status === 'running' ? 'primary' : ''}`}>
+                <a href={`/${d.number}/`}>
+                  <h2>Cohort {d.number}</h2>
+                  <p>
+                    {d.title ?? d.summary}
+                    {d.partner && <><br /><span class="mono">w/ {d.partner}</span></>}
+                  </p>
+                  <span class="surface-card-arrow" aria-hidden="true">→</span>
+                </a>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <div style="padding: var(--space-8) 0; text-align: center; color: var(--ink-mid);">
+          <p>No active cohorts right now. See the
+            <a href="https://tri-ai.org/programmes/tri-ai-saturdays/" style="text-decoration: underline;">
+              programme page on tri-ai.org
+            </a>
+            for the latest news.
+          </p>
+        </div>
+      )}
+    </div>
+  </section>
+</Base>

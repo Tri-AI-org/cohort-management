@@ -1,0 +1,183 @@
+---
+/**
+ * Cohort hub — cohort.tri-ai.org/[number]/
+ *
+ * The page a student lands on from an email like "Welcome to Cohort 10".
+ * Three jobs:
+ *   1. Confirm the right cohort (welcome by name, partner, dates).
+ *   2. Tell them what's happening THIS WEEK and route to check-in.
+ *   3. Show the other surfaces that are enabled for this cohort.
+ */
+import Base from '../../layouts/Base.astro';
+import { getCollection } from 'astro:content';
+import { getCohortState } from '../../lib/cohort';
+
+export async function getStaticPaths() {
+  // One route per cohort with portal.enabled. Cohorts that don't have
+  // the flag get filtered out → the URL 404s, which is what we want.
+  const cohorts = await getCollection('cohorts');
+  return cohorts
+    .filter(c => c.data.portal?.enabled)
+    .map(c => ({
+      params: { number: String(c.data.number) },
+      props:  { cohort: c },
+    }));
+}
+
+const { cohort } = Astro.props;
+const d = cohort.data;
+const state = getCohortState(d.schedule);
+
+// Strip "Cohort N —" prefix from the title if present, so we don't
+// say "Cohort 10 · Cohort 10 — AI Research Foundations". The
+// markdown title is the canonical descriptive name; this is just
+// for visual cleanliness in the hero.
+const cleanTitle = d.title
+  ?.replace(new RegExp(`^Cohort\\s+${d.number}\\s*[—-]\\s*`), '')
+  ?.replace(new RegExp(`^Cohort\\s+${d.number}\\s+`), '')
+  ?? null;
+
+// Build the surface rail. Each entry is gated on its respective
+// portal flag — turning off a surface in the markdown is the kill
+// switch, no code change required.
+const surfaces = [
+  d.portal?.attendanceOpen && {
+    label: "This week's check-in",
+    desc:  state.onBreak
+      ? "Break week — no check-in needed."
+      : state.preStart
+        ? `Opens ${d.schedule?.[0]?.date}.`
+        : state.completed
+          ? "Cohort complete — thank you for taking part."
+          : "Mark attendance and share feedback after Saturday's session.",
+    href:  `/${d.number}/check-in`,
+    primary: !state.onBreak && !state.preStart && !state.completed,
+    disabled: state.onBreak || state.preStart || state.completed,
+  },
+  d.portal?.onboardingOpen && {
+    label: "Onboarding checklist",
+    desc:  "Set up Skills Boost, Discord, and the mailing list before Day 1.",
+    href:  `/${d.number}/onboarding`,
+  },
+  d.portal?.myStatusOpen && {
+    label: "My status",
+    desc:  "Your attendance, feedback history, and certificate progress.",
+    href:  `/${d.number}/me`,
+  },
+  {
+    label: "Schedule",
+    desc:  `All ${d.schedule?.length ?? 16} weeks at a glance.`,
+    href:  `/${d.number}/schedule`,
+  },
+  d.portal?.facilitatorOpen && {
+    label: "Facilitators — submit materials",
+    desc:  "Share slides, notebooks, and readings ahead of your session.",
+    href:  `/${d.number}/facilitator`,
+  },
+].filter(Boolean) as {
+  label: string; desc: string; href: string; primary?: boolean; disabled?: boolean;
+}[];
+---
+
+<Base
+  title={`Cohort ${d.number} — TRI AI Portal`}
+  description={`Cohort ${d.number} attendance, schedule, and resources.`}
+>
+  <section class="page-hd">
+    <div class="container">
+      <nav class="page-hd-bread" aria-label="Breadcrumb">
+        <a href="/">Portal</a>
+        <span aria-hidden="true">›</span>
+        <span>Cohort {d.number}</span>
+      </nav>
+      <span class="page-hd-eyebrow">
+        {d.partner ? `In partnership with ${d.partner}` : 'TRI AI Saturdays'}
+      </span>
+      <h1>
+        Cohort {d.number}
+        {cleanTitle && (
+          <span style="font-weight: 400; color: var(--ink-mid);"> · {cleanTitle}</span>
+        )}
+      </h1>
+      <p class="page-hd-sub">{d.summary}</p>
+
+      {state.currentSession && (
+        <div class="now-pill">
+          <span class="now-pill-tag">
+            {state.preStart ? 'Starts' : state.completed ? 'Final week' : state.onBreak ? 'Break' : 'This week'}
+          </span>
+          <span class="now-pill-text">
+            Week {state.currentSession.week}
+            {state.currentSession.isBreak
+              ? " — mid-cohort break, no session"
+              : ` · ${state.currentSession.topic}`}
+          </span>
+          <span class="now-pill-date">{state.currentSession.date}</span>
+        </div>
+      )}
+    </div>
+  </section>
+
+  <section>
+    <div class="container">
+      <ul class="surface-grid">
+        {surfaces.map(s => (
+          <li class={`surface-card ${s.primary ? 'primary' : ''}`} style={s.disabled ? 'opacity: 0.55;' : ''}>
+            {s.disabled ? (
+              <div style="cursor: not-allowed;">
+                <h2>{s.label}</h2>
+                <p>{s.desc}</p>
+              </div>
+            ) : (
+              <a href={s.href}>
+                <h2>{s.label}</h2>
+                <p>{s.desc}</p>
+                <span class="surface-card-arrow" aria-hidden="true">→</span>
+              </a>
+            )}
+          </li>
+        ))}
+      </ul>
+
+      {(d.links?.discord || d.links?.mailingList || d.links?.skillsBoost) && (
+        <section style="margin-top: var(--space-7); padding-top: var(--space-6); border-top: 1px solid var(--line);">
+          <h2 style="font-size: var(--t-h3); margin-bottom: var(--space-4);">Community channels</h2>
+          <ul style="list-style: none; padding: 0;">
+            {d.links?.discord && (
+              <li style="padding: var(--space-3) 0; border-bottom: 1px solid var(--line);">
+                <a href={d.links.discord} target="_blank" rel="noopener" style="color: var(--ink); display: flex; align-items: center; justify-content: space-between;">
+                  <span><strong>Discord</strong> — announcements, help, and discussions</span>
+                  <span class="mono" style="font-size: var(--t-mono-sm);">open →</span>
+                </a>
+              </li>
+            )}
+            {d.links?.mailingList && (
+              <li style="padding: var(--space-3) 0; border-bottom: 1px solid var(--line);">
+                <a href={d.links.mailingList} target="_blank" rel="noopener" style="color: var(--ink); display: flex; align-items: center; justify-content: space-between;">
+                  <span><strong>Mailing list</strong> — weekly recaps and session reminders</span>
+                  <span class="mono" style="font-size: var(--t-mono-sm);">open →</span>
+                </a>
+              </li>
+            )}
+            {d.links?.skillsBoost && (
+              <li style="padding: var(--space-3) 0; border-bottom: 1px solid var(--line);">
+                <a href={d.links.skillsBoost} target="_blank" rel="noopener" style="color: var(--ink); display: flex; align-items: center; justify-content: space-between;">
+                  <span><strong>Google Cloud Skills Boost</strong> — weekly course content</span>
+                  <span class="mono" style="font-size: var(--t-mono-sm);">open →</span>
+                </a>
+              </li>
+            )}
+            {d.links?.mainSiteUrl && (
+              <li style="padding: var(--space-3) 0;">
+                <a href={d.links.mainSiteUrl} target="_blank" rel="noopener" style="color: var(--ink-mid); display: flex; align-items: center; justify-content: space-between; font-size: var(--t-small);">
+                  <span>Public cohort page on tri-ai.org</span>
+                  <span class="mono" style="font-size: var(--t-mono-sm);">open →</span>
+                </a>
+              </li>
+            )}
+          </ul>
+        </section>
+      )}
+    </div>
+  </section>
+</Base>

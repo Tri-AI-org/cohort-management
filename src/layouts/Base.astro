@@ -1,0 +1,75 @@
+---
+import '../styles/global.css';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+
+interface Props {
+  title?: string;
+  description?: string;
+  noFooter?: boolean;
+}
+
+const {
+  title       = 'TRI AI Cohort Portal',
+  description = 'Attendance, schedule, and resources for active TRI AI cohorts.',
+  noFooter    = false,
+} = Astro.props;
+
+const canonical = new URL(Astro.url.pathname, Astro.site).toString();
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="generator" content={Astro.generator} />
+
+    <!-- The portal should not be indexed. The CSP header in netlify.toml
+         also enforces this server-side, but the meta tag belt-and-braces
+         it for anything that scrapes HTML directly. -->
+    <meta name="robots" content="noindex, nofollow" />
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="canonical" href={canonical} />
+
+    <title>{title}</title>
+    <meta name="description" content={description} />
+
+    <!-- Open Graph: minimal. We don't want the portal previewing
+         richly in social cards since the URLs aren't meant to be
+         shared publicly. -->
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+
+    <!-- Fonts: same as the main site so the visual identity is
+         consistent. preconnect cuts the TLS handshake. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@200;300;400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Theme bootstrap — runs synchronously to prevent the
+         light-then-dark flash that happens if we set the theme
+         from JS after first paint. The is:inline directive is
+         the Astro escape hatch for "ship this exactly as-written,
+         don't process it". -->
+    <script is:inline>
+      (function () {
+        try {
+          var t = localStorage.getItem('triai-portal-theme');
+          if (t === 'light' || t === 'dark') {
+            document.documentElement.setAttribute('data-theme', t);
+          }
+        } catch (e) { /* localStorage disabled — fall back to system pref */ }
+      })();
+    </script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <Header />
+    <main id="main"><slot /></main>
+    {!noFooter && <Footer />}
+  </body>
+</html>

@@ -1,0 +1,107 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# ─────────── Headers ───────────
+# Tight defaults for the whole site. This is an application surface,
+# not a content site — we lock things down rather than open them up.
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # Block search engines entirely. The portal contains student PII
+    # in some sub-paths (admin, facilitator, /me) and even the public
+    # pages aren't discoverable content — they're forms reached from
+    # emails. Out of the index, full stop.
+    X-Robots-Tag = "noindex, nofollow"
+    # CSP: connect only to same origin. Even if someone injects a script
+    # into a check-in page, it cannot exfiltrate the session cookie or
+    # form data to a third-party server.
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self';"
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+
+# Long-cache static assets — Astro fingerprints these so cache-busting
+# is automatic.
+[[headers]]
+  for = "/_astro/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# The /admin and /facilitator paths get an extra layer of robots
+# protection, redundant with the site-wide header but defensive.
+[[headers]]
+  for = "/*/admin*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow, noarchive"
+
+[[headers]]
+  for = "/*/facilitator*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow, noarchive"
+
+# ─────────── Redirects ───────────
+# /api/* → Netlify Functions. Lets the frontend call /api/auth/login
+# instead of /.netlify/functions/auth-organiser-login. The mapping is
+# explicit (one redirect per function) rather than a wildcard so we
+# don't accidentally expose a private function by adding its file.
+[[redirects]]
+  from   = "/api/auth/request-link"
+  to     = "/.netlify/functions/auth-request-link"
+  status = 200
+
+[[redirects]]
+  from   = "/api/auth/callback"
+  to     = "/.netlify/functions/auth-callback"
+  status = 200
+
+# User-facing magic-link callback. Email links go to /auth/callback?t=…
+# — this redirect makes that URL hit the function. KEEP THIS PATH STABLE:
+# changing it breaks every magic link already sitting in users' inboxes.
+[[redirects]]
+  from   = "/auth/callback"
+  to     = "/.netlify/functions/auth-callback"
+  status = 200
+
+[[redirects]]
+  from   = "/api/auth/organiser-login"
+  to     = "/.netlify/functions/auth-organiser-login"
+  status = 200
+
+[[redirects]]
+  from   = "/api/attendance"
+  to     = "/.netlify/functions/attendance-api"
+  status = 200
+
+[[redirects]]
+  from   = "/api/dashboard"
+  to     = "/.netlify/functions/dashboard-api"
+  status = 200
+
+[[redirects]]
+  from   = "/api/student/me"
+  to     = "/.netlify/functions/student-me"
+  status = 200
+
+[[redirects]]
+  from   = "/api/applications/import"
+  to     = "/.netlify/functions/applications-import"
+  status = 200
+
+[[redirects]]
+  from   = "/api/applications/review"
+  to     = "/.netlify/functions/applications-review"
+  status = 200
+
+# Naked /10 → /10/  (preserves the trailing slash convention)
+[[redirects]]
+  from = "/:number"
+  to   = "/:number/"
+  status = 301
+  conditions = { Pattern = "^/(\\d+)$" }

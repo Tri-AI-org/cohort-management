@@ -1,0 +1,391 @@
+---
+/**
+ * Check-in — cohort.tri-ai.org/[number]/check-in
+ *
+ * Replaces the standalone attendance.html. Same flow (verify email →
+ * mark attendance + feedback → success), wrapped in the portal's
+ * Base layout, with:
+ *
+ *   - Current week computed at build time from cohort frontmatter
+ *     (no client-side date math, no flash of "Loading week...")
+ *   - API calls hit /api/attendance on the same origin
+ *   - No SCRIPT_URL in client source
+ *   - Real success/failure feedback (no fire-and-forget submit)
+ */
+import Base from '../../layouts/Base.astro';
+import { getCollection } from 'astro:content';
+import { getCohortState } from '../../lib/cohort';
+
+export async function getStaticPaths() {
+  const cohorts = await getCollection('cohorts');
+  return cohorts
+    .filter(c => c.data.portal?.enabled && c.data.portal?.attendanceOpen)
+    .map(c => ({
+      params: { number: String(c.data.number) },
+      props:  { cohort: c },
+    }));
+}
+
+const { cohort } = Astro.props;
+const d = cohort.data;
+const state = getCohortState(d.schedule);
+const session = state.currentSession;
+
+// The "render the form" condition: there must be a current session AND
+// it must not be a break week AND we must not be in pre-start. The page
+// renders even when these are false — but with a friendly status
+// message instead of the form. That's better UX than a 404 for the
+// student who shows up early.
+const renderForm = !!session && !state.preStart && !state.completed && !state.onBreak;
+---
+
+<Base
+  title={`Week ${session?.week ?? '—'} Check-in — Cohort ${d.number}`}
+  description="Mark your attendance and share feedback on this week's session."
+>
+  <section class="page-hd">
+    <div class="container">
+      <nav class="page-hd-bread">
+        <a href={`/${d.number}/`}>← Cohort {d.number}</a>
+      </nav>
+      <span class="page-hd-eyebrow">
+        {state.preStart  && `Cohort starts ${d.schedule?.[0]?.date}`}
+        {state.completed && `Cohort ${d.number} complete`}
+        {state.onBreak   && `Week ${session?.week} · Break`}
+        {renderForm      && `Week ${session?.week} · ${session?.date}`}
+      </span>
+      <h1>Saturday Check-in</h1>
+      <p class="page-hd-sub">
+        {state.preStart  && `The first session is ${d.schedule?.[0]?.date}. We'll see you then.`}
+        {state.completed && `Thank you for an incredible cohort. The portal stays open for your records.`}
+        {state.onBreak   && `Mid-cohort break — no session this week. Check-in reopens next Saturday.`}
+        {renderForm      && `Enter your registered email to confirm attendance for Week ${session?.week}: ${session?.topic}.`}
+      </p>
+    </div>
+  </section>
+
+  {renderForm && (
+    <section style="padding: var(--space-7) 0;">
+      <div class="container">
+
+        <!-- Progress indicator -->
+        <div class="progress">
+          <div class="progress-step" data-active id="progress-1">
+            <span class="progress-dot">1</span>
+            <span>Verify</span>
+          </div>
+          <div class="progress-step" id="progress-2">
+            <span class="progress-dot">2</span>
+            <span>Feedback</span>
+          </div>
+          <div class="progress-step" id="progress-3">
+            <span class="progress-dot">3</span>
+            <span>Done</span>
+          </div>
+        </div>
+
+        <!-- Step 1: verify email -->
+        <form class="form-card" id="step-1" novalidate>
+          <div class="step-num">1</div>
+          <h2>Verify your email</h2>
+          <p class="form-sub">
+            Use the email you registered with when you applied for Cohort {d.number}.
+          </p>
+
+          <label for="email">Registered email</label>
+          <input
+            type="email"
+            id="email"
+            placeholder="you@example.com"
+            autocomplete="email"
+            autocapitalize="none"
+            inputmode="email"
+            required
+          />
+          <div id="email-error" class="field-error" role="alert" aria-live="polite">
+            <span id="email-error-msg">Please enter a valid email address.</span>
+          </div>
+
+          <button type="submit" id="btn-verify" class="btn-primary">
+            Continue →
+          </button>
+        </form>
+
+        <!-- Step 2: attendance + feedback -->
+        <form class="form-card" id="step-2" hidden novalidate>
+          <div class="step-num">2</div>
+          <h2 id="student-greeting">Hi —</h2>
+          <p class="form-sub" id="session-info">
+            Week {session?.week} · {session?.topic}
+          </p>
+
+          <div id="already-banner" class="field-info" hidden>
+            You have already submitted attendance for this week. You can
+            still update your feedback below — we'll use your most recent
+            response.
+          </div>
+
+          <fieldset class="radio-chips">
+            <legend>Did you attend this week?</legend>
+            <label class="radio-chip">
+              <input type="radio" name="att" value="live" />
+              <span>I attended live</span>
+            </label>
+            <label class="radio-chip">
+              <input type="radio" name="att" value="recording" />
+              <span>I watched the recording</span>
+            </label>
+            <label class="radio-chip">
+              <input type="radio" name="att" value="missed" />
+              <span>I missed this session</span>
+            </label>
+          </fieldset>
+          <div id="att-error" class="field-error" role="alert" aria-live="polite">
+            <span id="att-error-msg">Please choose one option above.</span>
+          </div>
+
+          <div id="rating-section">
+            <label>How was the session?</label>
+            <div class="rating-row" role="radiogroup" aria-label="Session rating, 1 to 5">
+              <button type="button" class="rating-btn" data-rating="1">1</button>
+              <button type="button" class="rating-btn" data-rating="2">2</button>
+              <button type="button" class="rating-btn" data-rating="3">3</button>
+              <button type="button" class="rating-btn" data-rating="4">4</button>
+              <button type="button" class="rating-btn" data-rating="5">5</button>
+            </div>
+          </div>
+
+          <label for="q1">
+            What worked well for you this week?
+            <span class="label-optional">optional</span>
+          </label>
+          <textarea
+            id="q1"
+            rows="3"
+            placeholder="e.g. The lab walkthrough really helped me understand tokenization…"
+          ></textarea>
+
+          <label for="q2">
+            What's still unclear?
+            <span class="label-optional">optional</span>
+          </label>
+          <textarea
+            id="q2"
+            rows="3"
+            placeholder="e.g. I'm still unsure how BPE works in practice…"
+          ></textarea>
+
+          <button type="submit" id="btn-submit" class="btn-primary">
+            Submit →
+          </button>
+        </form>
+
+        <!-- Step 3: success -->
+        <div class="form-card success-card" id="step-3" hidden role="status" aria-live="polite">
+          <div class="success-icon" aria-hidden="true">✓</div>
+          <h2>Thanks for checking in</h2>
+          <p id="success-msg">
+            Thanks for the feedback. It shapes every session. See you next Saturday.
+          </p>
+          <a href={`/${d.number}/`} class="btn-ghost">← Back to Cohort {d.number}</a>
+        </div>
+
+      </div>
+    </section>
+  )}
+
+  <!-- Cohort-specific config passed to client script via data attrs
+       so the script itself is cohort-agnostic. -->
+  <div
+    id="checkin-config"
+    hidden
+    data-cohort={d.number}
+    data-week={session?.week ?? ''}
+    data-topic={session?.topic ?? ''}
+  ></div>
+</Base>
+
+<script>
+  // ── Wiring up the form. Cohort-agnostic — all cohort-specific
+  // values come from the data-attributes on #checkin-config.
+  const API_URL = '/api/attendance';
+  const cfg = document.getElementById('checkin-config');
+  if (!cfg) {
+    // Bail silently — the form isn't rendered (pre-start, break, etc.)
+  } else {
+    const cohortNumber = cfg.dataset.cohort!;
+    const currentWeek  = cfg.dataset.week!;
+
+    let studentEmail = '';
+    let studentName  = '';
+    let attType: string | null = null;
+    let rating: number | null = null;
+
+    const $ = <T extends HTMLElement = HTMLElement>(id: string): T | null =>
+      document.getElementById(id) as T | null;
+
+    // ── Step 1: verify ─────────────────────────────────────
+    const step1 = $<HTMLFormElement>('step-1');
+    step1?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      await verifyEmail();
+    });
+
+    async function verifyEmail() {
+      const emailEl = $<HTMLInputElement>('email')!;
+      const errEl   = $('email-error')!;
+      const errMsg  = $('email-error-msg')!;
+      const btn     = $<HTMLButtonElement>('btn-verify')!;
+
+      const email = emailEl.value.trim().toLowerCase();
+      emailEl.value = email;
+      emailEl.classList.remove('error');
+
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        emailEl.classList.add('error');
+        errMsg.textContent = 'Please enter a valid email address.';
+        errEl.dataset.shown = 'true';
+        return;
+      }
+
+      delete errEl.dataset.shown;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Checking…';
+
+      try {
+        const res = await fetch(API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'verify', email, week: currentWeek, cohort: cohortNumber }),
+        });
+
+        if (res.status === 429) {
+          emailEl.classList.add('error');
+          errMsg.textContent = 'Too many attempts. Wait a minute and try again.';
+          errEl.dataset.shown = 'true';
+          return;
+        }
+
+        const data = await res.json();
+
+        if (data.valid) {
+          studentEmail = email;
+          studentName  = data.name
+                      || `${data.firstName || ''} ${data.lastName || ''}`.trim()
+                      || email.split('@')[0];
+
+          $('step-1')!.hidden = true;
+          $('step-2')!.hidden = false;
+          $('student-greeting')!.textContent = `Hi ${studentName}!`;
+
+          // Progress indicator: step 1 done, step 2 active
+          const p1 = $('progress-1')!;
+          p1.dataset.done = 'true';
+          delete p1.dataset.active;
+          p1.querySelector('.progress-dot')!.textContent = '✓';
+          $('progress-2')!.dataset.active = 'true';
+
+          if (data.alreadySubmitted) $('already-banner')!.hidden = false;
+
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        } else {
+          emailEl.classList.add('error');
+          errMsg.textContent = data.message
+            || 'This email was not found. Please check or email cohorts@tri-ai.org.';
+          errEl.dataset.shown = 'true';
+        }
+      } catch {
+        errMsg.textContent = 'Something went wrong. Please try again.';
+        errEl.dataset.shown = 'true';
+      } finally {
+        if (!$('step-1')!.hidden) {
+          btn.disabled = false;
+          btn.innerHTML = 'Continue →';
+        }
+      }
+    }
+
+    // ── Step 2: attendance + feedback ──────────────────────
+    document.querySelectorAll<HTMLInputElement>('input[name="att"]').forEach(r => {
+      r.addEventListener('change', () => {
+        attType = r.value;
+        delete $('att-error')!.dataset.shown;
+        // Hide rating section if "missed" was selected
+        $('rating-section')!.hidden = attType === 'missed';
+      });
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('.rating-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.rating-btn').forEach(b => delete (b as HTMLElement).dataset.selected);
+        btn.dataset.selected = 'true';
+        rating = parseInt(btn.dataset.rating!, 10);
+      });
+    });
+
+    const step2 = $<HTMLFormElement>('step-2');
+    step2?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      await submitAttendance();
+    });
+
+    async function submitAttendance() {
+      if (!attType) {
+        $('att-error')!.dataset.shown = 'true';
+        $('att-error')!.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+      const btn = $<HTMLButtonElement>('btn-submit')!;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Submitting…';
+
+      try {
+        const res = await fetch(API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action:    'submit',
+            cohort:    cohortNumber,
+            email:     studentEmail,
+            week:      currentWeek,
+            attended:  attType,
+            rating:    attType !== 'missed' ? rating : '',
+            feedback1: ($('q1') as HTMLTextAreaElement).value.trim(),
+            feedback2: ($('q2') as HTMLTextAreaElement).value.trim(),
+          }),
+        });
+
+        if (res.status === 429) {
+          throw new Error('Too many submissions. Wait a minute and try again.');
+        }
+
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error || 'Submission failed');
+
+        // Success state
+        $('step-2')!.hidden = true;
+        $('step-3')!.hidden = false;
+        $('success-msg')!.textContent = attType === 'missed'
+          ? "We've recorded that you missed this session. The recording goes on YouTube next week — see you Saturday."
+          : 'Thanks for the feedback. It shapes every session. See you next Saturday.';
+
+        // Progress indicator: step 2 done, step 3 active
+        const p2 = $('progress-2')!;
+        p2.dataset.done = 'true';
+        delete p2.dataset.active;
+        p2.querySelector('.progress-dot')!.textContent = '✓';
+        $('progress-3')!.dataset.active = 'true';
+
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } catch (err) {
+        btn.disabled = false;
+        btn.innerHTML = 'Submit →';
+        const errBox = $('att-error')!;
+        $('att-error-msg')!.textContent = (err as Error).message
+          || "We couldn't save your check-in. Please try again, or email cohorts@tri-ai.org.";
+        errBox.dataset.shown = 'true';
+        errBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  }
+</script>

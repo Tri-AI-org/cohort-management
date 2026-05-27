@@ -75,4 +75,3 @@ Full instructions, troubleshooting, runbook → `docs/DEPLOY.md`.
 - ✅ Phase 2 backend (this drop): schema, auth, APIs, scripts, docs
 - ⏳ Phase 2 UI (next drop): admin dashboards, /me, facilitator, sign-in pages
 - ⏳ Phase 3: cron jobs (weekly reminders, at-risk alerts), background-function bulk email
-# cohort-management

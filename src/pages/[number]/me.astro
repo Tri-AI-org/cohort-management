@@ -14,6 +14,7 @@
  * if no session. The /api/student/me endpoint double-checks.
  */
 import AppShell from '../../layouts/AppShell.astro';
+import StudentNav from '../../components/StudentNav.astro';
 import { getCollection } from 'astro:content';
 
 export async function getStaticPaths() {
@@ -31,10 +32,12 @@ const cohortNumber = cohort.data.number;
 ---
 <AppShell
   title={`Your status · Cohort ${cohortNumber}`}
-  requiredKind="student"
+  requiredKind="student-or-facilitator"
   cohortNumber={cohortNumber}
 >
   <div class="container app-page">
+    <StudentNav cohortNumber={cohortNumber} active="me" />
+
     <div id="loading" class="me-loading">
       <p class="lede">Loading your status…</p>
     </div>

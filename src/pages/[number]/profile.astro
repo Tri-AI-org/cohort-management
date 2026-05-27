@@ -1,0 +1,351 @@
+---
+/**
+ * /profile
+ *
+ * Self-service profile. Anyone signed in can see their own profile
+ * here. What they can do depends on role:
+ *
+ *   Students     → read-only view + "Request a correction" form
+ *   Facilitators → can edit first/last name, github, country, city.
+ *                  Read-only on everything else, with "Request a
+ *                  correction" for those fields.
+ *   Organisers   → can edit everything on themselves AND can use the
+ *                  separate admin tooling to edit others.
+ *
+ * Reachable from: the app-bar (added in this drop), or directly at
+ * /profile after sign-in.
+ */
+import AppShell from '../layouts/AppShell.astro';
+---
+<AppShell title="Your profile · TRI AI Cohort Portal" requiredKind="any">
+  <div class="container app-page profile-page">
+    <h1>Your profile</h1>
+    <p class="lede">Your details on file with TRI AI Saturdays.</p>
+
+    <div id="error" class="auth-msg err" hidden></div>
+    <div id="success" class="auth-msg ok" hidden></div>
+
+    <div id="loading" class="lede">Loading…</div>
+
+    <div id="content" hidden>
+      <!-- BASICS -->
+      <section class="profile-section">
+        <h2 class="card-h">Basics</h2>
+        <dl class="profile-dl" id="basics-readonly" hidden>
+          <dt>Name</dt>          <dd id="ro-name">—</dd>
+          <dt>Email</dt>         <dd id="ro-email" class="mono">—</dd>
+          <dt>Country</dt>       <dd id="ro-country">—</dd>
+          <dt>City</dt>          <dd id="ro-city">—</dd>
+          <dt>GitHub</dt>        <dd id="ro-github">—</dd>
+        </dl>
+
+        <form id="basics-form" class="profile-form" hidden>
+          <p class="form-intro" id="form-intro">
+            You can update these fields directly. The first time you sign
+            in, your name may be blank — please add it here.
+          </p>
+          <div class="row">
+            <label>First name<input name="first_name" /></label>
+            <label>Last name <input name="last_name" /></label>
+          </div>
+          <label>Email
+            <input name="email" readonly />
+            <span class="hint">Email is your sign-in identifier and can't be changed here.</span>
+          </label>
+          <label>GitHub URL
+            <input name="github_url" type="url" placeholder="https://github.com/…" />
+          </label>
+          <div class="row">
+            <label>Country<input name="country" /></label>
+            <label>City<input name="city" /></label>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn primary">Save changes</button>
+          </div>
+        </form>
+      </section>
+
+      <!-- COHORT MEMBERSHIPS -->
+      <section class="profile-section">
+        <h2 class="card-h">Your cohorts</h2>
+        <ul class="enrolment-list" id="enrolment-list"></ul>
+        <p id="no-enrolments" class="lede" hidden>You're not currently enrolled in any cohort.</p>
+      </section>
+
+      <!-- REQUEST CORRECTION -->
+      <section class="profile-section">
+        <h2 class="card-h">Need a correction?</h2>
+        <p class="card-sub">
+          If something here is wrong or out of date — your name, email,
+          country, anything — let the organisers know. They'll review
+          and apply the change.
+        </p>
+        <form id="correction-form">
+          <label>What should change?
+            <textarea name="message" rows="4" required
+              placeholder="e.g. My last name should be 'Adekunle-Lawal' (hyphenated)."></textarea>
+          </label>
+          <div class="form-actions">
+            <button type="submit" class="btn">Send correction request</button>
+          </div>
+        </form>
+        <div id="correction-success" class="auth-msg ok" hidden>
+          Sent. The organisers will get back to you by email.
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <style>
+    .profile-page { max-width: 720px; }
+
+    .profile-section {
+      background: #fff;
+      border: 1px solid var(--border, rgba(0,0,0,0.08));
+      border-radius: 12px;
+      padding: 24px 28px;
+      margin-bottom: 20px;
+    }
+    .card-h {
+      font-size: 18px; font-weight: 700;
+      margin: 0 0 12px;
+    }
+    .card-sub {
+      color: var(--text-dim, #666);
+      font-size: 14px; line-height: 1.55;
+      margin: 0 0 18px;
+    }
+    .form-intro {
+      color: var(--text-dim, #666);
+      font-size: 13px; line-height: 1.55;
+      margin: 0 0 16px;
+      padding: 10px 14px;
+      background: var(--gold-light);
+      border-radius: 8px;
+    }
+    .form-intro.hidden { display: none; }
+
+    .profile-dl dt {
+      font-size: 11px; text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-dim, #888);
+      font-weight: 600;
+      margin-top: 14px;
+    }
+    .profile-dl dt:first-of-type { margin-top: 0; }
+    .profile-dl dd {
+      margin: 4px 0 0; font-size: 15px;
+    }
+
+    .profile-form .row {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    }
+    @media (max-width: 600px) {
+      .profile-form .row { grid-template-columns: 1fr; }
+    }
+    .profile-form label {
+      display: block; margin-bottom: 16px;
+      font-size: 13px; font-weight: 600;
+    }
+    .profile-form input,
+    .profile-form textarea {
+      display: block; width: 100%; box-sizing: border-box;
+      margin-top: 5px;
+      padding: 9px 12px;
+      border: 1px solid var(--border, #d4d4d4);
+      border-radius: 7px;
+      font: inherit; font-size: 14px;
+      background: #fff;
+      font-weight: 400;
+    }
+    .profile-form input[readonly] {
+      background: var(--bg-soft, #fafafa);
+      color: var(--text-dim, #777);
+    }
+    .profile-form textarea { resize: vertical; font-family: inherit; }
+    .profile-form .hint {
+      display: block; margin-top: 4px;
+      font-size: 12px; color: var(--text-dim, #888); font-weight: 400;
+    }
+    .form-actions { margin-top: 8px; display: flex; gap: 12px; justify-content: flex-end; }
+
+    .enrolment-list { list-style: none; margin: 0; padding: 0; }
+    .enrolment-list li {
+      padding: 14px 0;
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px;
+      border-bottom: 1px solid var(--border, rgba(0,0,0,0.06));
+    }
+    .enrolment-list li:last-child { border-bottom: 0; }
+    .enrolment-list .e-cohort {
+      font-weight: 600; font-size: 15px;
+    }
+    .enrolment-list .e-meta {
+      font-size: 12px; color: var(--text-dim, #888);
+    }
+    .enrolment-list .role-tag {
+      background: var(--teaching-light); color: var(--teaching);
+      padding: 2px 8px; border-radius: 4px;
+      font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .enrolment-list .role-tag.organiser   { background: rgba(0,0,0,0.06); color: var(--text, #141414); }
+    .enrolment-list .role-tag.facilitator { background: var(--gold-light); color: var(--gold-deep); }
+    .enrolment-list .lead-marker {
+      display: inline-block; margin-left: 6px;
+      font-size: 10px; font-weight: 700; color: var(--alert);
+    }
+    .enrolment-list a {
+      color: var(--teaching); text-decoration: none; font-size: 13px;
+    }
+
+    #correction-form textarea {
+      width: 100%; box-sizing: border-box;
+      padding: 10px 12px;
+      border: 1px solid var(--border, #d4d4d4);
+      border-radius: 7px;
+      font: inherit; font-size: 14px;
+    }
+    #correction-form label {
+      display: block; font-size: 13px; font-weight: 600; margin-bottom: 12px;
+    }
+  </style>
+
+  <script is:inline>
+    (function () {
+      const $ = (id) => document.getElementById(id);
+      let editable = [];
+      let isSelf = true;
+
+      load();
+
+      async function load() {
+        try {
+          const res = await fetch('/api/profile', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ action: 'get' }),
+          });
+          if (res.status === 401) { location.replace('/signin'); return; }
+          const data = await res.json();
+          if (!res.ok) { showError(data.error || 'Failed to load.'); return; }
+
+          const p = data.person;
+          editable = data.editable || [];
+          isSelf   = data.isSelf;
+
+          if (editable.length === 0) {
+            // Read-only view
+            $('basics-readonly').hidden = false;
+            $('basics-form').hidden = true;
+            const fullName = [p.first_name, p.last_name].filter(Boolean).join(' ').trim() || '—';
+            $('ro-name').textContent    = fullName;
+            $('ro-email').textContent   = p.email;
+            $('ro-country').textContent = p.country || '—';
+            $('ro-city').textContent    = p.city || '—';
+            const gh = $('ro-github');
+            if (p.github_url) {
+              gh.innerHTML = '<a href="' + escapeAttr(p.github_url) + '" target="_blank" rel="noopener">' + escapeHtml(p.github_url) + '</a>';
+            } else {
+              gh.textContent = '—';
+            }
+          } else {
+            // Editable view
+            $('basics-readonly').hidden = true;
+            $('basics-form').hidden = false;
+            const form = $('basics-form');
+            for (const el of form.elements) {
+              if (!el.name) continue;
+              el.value = p[el.name] ?? '';
+            }
+            // If facilitator was created with first_name=email, show intro banner;
+            // otherwise hide it.
+            const looksAutoCreated = p.first_name === p.email && (!p.last_name || p.last_name === '');
+            $('form-intro').hidden = !looksAutoCreated;
+          }
+
+          // Enrolments
+          const list = $('enrolment-list');
+          list.innerHTML = '';
+          if ((data.enrolments || []).length === 0) {
+            $('no-enrolments').hidden = false;
+          } else {
+            for (const e of data.enrolments) {
+              const li = document.createElement('li');
+              const roleHtml = '<span class="role-tag ' + e.role + '">' + e.role + '</span>' +
+                (e.is_lead ? ' <span class="lead-marker">LEAD</span>' : '');
+              li.innerHTML =
+                '<div>' +
+                  '<div class="e-cohort">Cohort ' + e.cohort_number +
+                    (e.cohort_title ? ' · ' + escapeHtml(e.cohort_title) : '') + '</div>' +
+                  '<div class="e-meta">' +
+                    roleHtml + ' · ' + escapeHtml(e.status) +
+                    (e.cohort_status === 'running' ? ' · <strong>active</strong>' : '') +
+                  '</div>' +
+                '</div>' +
+                '<a href="/' + e.cohort_number + '/">Open →</a>';
+              list.appendChild(li);
+            }
+          }
+
+          $('loading').hidden = true;
+          $('content').hidden = false;
+        } catch (err) {
+          showError('Network error.');
+        }
+      }
+
+      // Save handler
+      $('basics-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        clearMessages();
+        const fields = {};
+        for (const el of e.target.elements) {
+          if (!el.name || el.readOnly) continue;
+          if (editable.includes(el.name)) fields[el.name] = el.value;
+        }
+        try {
+          const res = await fetch('/api/profile', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ action: 'update', fields }),
+          });
+          const data = await res.json();
+          if (!res.ok) { showError(data.error || 'Save failed.'); return; }
+          showSuccess('Profile updated.');
+          $('form-intro').hidden = true;
+        } catch {
+          showError('Network error.');
+        }
+      });
+
+      // Correction submit
+      $('correction-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const msg = e.target.elements['message'].value.trim();
+        if (!msg) return;
+        try {
+          const res = await fetch('/api/profile', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ action: 'request_correction', message: msg }),
+          });
+          const data = await res.json();
+          if (!res.ok) { showError(data.error || 'Could not send.'); return; }
+          $('correction-success').hidden = false;
+          e.target.elements['message'].value = '';
+        } catch {
+          showError('Network error.');
+        }
+      });
+
+      function showError(t)   { $('error').textContent = t; $('error').hidden = false; window.scrollTo(0,0); }
+      function showSuccess(t) { $('success').textContent = t; $('success').hidden = false; setTimeout(() => $('success').hidden = true, 3000); }
+      function clearMessages(){ $('error').hidden = true; $('success').hidden = true; }
+      function escapeHtml(s)  { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+      function escapeAttr(s)  { return String(s ?? '').replace(/&/g,'&amp;').replace(/"/g,'&quot;'); }
+    })();
+  </script>
+</AppShell>

@@ -1,0 +1,229 @@
+---
+/**
+ * /[number]/schedule
+ *
+ * The cohort's full schedule — read from DB at runtime so it stays
+ * in sync with the admin schedule editor without rebuilding the site.
+ *
+ * Rendered as a vertical timeline with status per week:
+ *   - "past"    → grey marker, optionally with materials links
+ *   - "current" → highlighted, "This week" tag
+ *   - "future"  → muted
+ *
+ * Auth: visible to anyone with a cohort session (student or
+ * facilitator). Organisers can also see it via this route — they
+ * have a richer view at /[n]/admin/schedule.
+ */
+import AppShell from '../../layouts/AppShell.astro';
+import StudentNav from '../../components/StudentNav.astro';
+import { getCollection } from 'astro:content';
+
+export async function getStaticPaths() {
+  const cohorts = await getCollection('cohorts');
+  return cohorts
+    .filter(c => c.data.portal?.enabled)
+    .map(c => ({
+      params: { number: String(c.data.number) },
+      props:  { cohort: c },
+    }));
+}
+
+const { cohort } = Astro.props;
+const cohortNumber = cohort.data.number;
+---
+<AppShell
+  title={`Schedule · Cohort ${cohortNumber}`}
+  requiredKind="student-or-facilitator"
+  cohortNumber={cohortNumber}
+>
+  <div class="container app-page">
+    <StudentNav cohortNumber={cohortNumber} active="schedule" />
+
+    <div style="margin-bottom: var(--space-3);">
+      <h1>Schedule</h1>
+      <p class="lede" id="lede">Loading…</p>
+    </div>
+
+    <div id="error" class="auth-msg err" hidden></div>
+
+    <ol class="timeline" id="timeline" hidden></ol>
+  </div>
+
+  <style>
+    .timeline {
+      list-style: none; padding: 0; margin: 0;
+      position: relative;
+      max-width: 720px;
+    }
+    .timeline::before {
+      content: '';
+      position: absolute;
+      left: 27px; top: 12px; bottom: 12px;
+      width: 2px;
+      background: var(--border, rgba(0,0,0,0.1));
+    }
+    .tl-item {
+      display: flex; gap: 16px;
+      padding: 16px 0;
+      position: relative;
+    }
+    .tl-marker {
+      flex-shrink: 0;
+      width: 56px; height: 56px;
+      border-radius: 50%;
+      background: var(--bg-soft, #f5f5f5);
+      border: 2px solid var(--border, rgba(0,0,0,0.1));
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-mono);
+      font-weight: 700;
+      color: var(--text-dim, #888);
+      z-index: 1;
+    }
+    .tl-current .tl-marker {
+      background: var(--teaching); color: #fff; border-color: var(--teaching);
+    }
+    .tl-past .tl-marker {
+      background: #fff;
+      color: var(--text-dim, #666);
+    }
+    .tl-break .tl-marker {
+      background: var(--gold-light); border-color: var(--gold);
+      color: var(--gold-deep);
+    }
+
+    .tl-content { flex: 1; padding-top: 6px; }
+    .tl-head {
+      display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+      font-size: 12px;
+      color: var(--text-dim, #888);
+      margin-bottom: 4px;
+    }
+    .tl-date { font-family: var(--font-mono); }
+    .tl-now-tag {
+      background: var(--teaching); color: #fff;
+      padding: 2px 7px; border-radius: 4px;
+      font-size: 10px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .tl-break-tag {
+      background: var(--gold-light); color: var(--gold-deep);
+      padding: 2px 7px; border-radius: 4px;
+      font-size: 10px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .tl-topic {
+      font-size: 16px; font-weight: 600;
+      margin: 0 0 8px;
+    }
+    .tl-future .tl-topic { color: var(--text-dim, #666); }
+    .tl-links {
+      list-style: none; padding: 0; margin: 6px 0 0;
+      display: flex; flex-wrap: wrap; gap: 10px;
+      font-size: 13px;
+    }
+    .tl-links a {
+      color: var(--teaching);
+      text-decoration: none;
+      padding: 3px 8px;
+      background: var(--teaching-light);
+      border-radius: 5px;
+    }
+    .tl-links a:hover { background: var(--teaching); color: #fff; }
+  </style>
+
+  <script is:inline define:vars={{ cohortNumber }}>
+    (async function () {
+      const $ = (id) => document.getElementById(id);
+
+      try {
+        const res = await fetch('/api/cohort', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ action: 'get', cohort: cohortNumber }),
+        });
+        if (!res.ok) {
+          const e = await res.json();
+          showError(e.error || 'Could not load schedule.');
+          return;
+        }
+        const data = await res.json();
+        const c = data.cohort || {};
+        const sessions = c.sessions_json || [];
+
+        if (sessions.length === 0) {
+          $('lede').textContent = 'No sessions yet.';
+          return;
+        }
+
+        $('lede').textContent =
+          `${sessions.length} week${sessions.length === 1 ? '' : 's'}` +
+          (c.start_date ? ' · starts ' + formatDate(c.start_date) : '') +
+          (c.end_date ? ' · ends ' + formatDate(c.end_date) : '');
+
+        renderTimeline(sessions);
+      } catch (err) {
+        showError('Network error.');
+      }
+
+      function renderTimeline(sessions) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const ol = $('timeline');
+        ol.innerHTML = '';
+
+        for (const s of sessions) {
+          const sdate = s.session_date ? new Date(s.session_date) : null;
+          let status = 'future';
+          if (s.is_break) status = 'break';
+          else if (sdate) {
+            const sdateOnly = new Date(sdate);
+            sdateOnly.setHours(0, 0, 0, 0);
+            // Today is "current" if the session is within today
+            if (sdateOnly.getTime() === today.getTime()) status = 'current';
+            else if (sdateOnly < today) status = 'past';
+          }
+
+          const li = document.createElement('li');
+          li.className = `tl-item tl-${status}`;
+          const tagHtml =
+            status === 'current' ? '<span class="tl-now-tag">This week</span>' :
+            status === 'break'   ? '<span class="tl-break-tag">Break</span>' :
+            '';
+
+          const linksHtml = [];
+          if (s.slides_url)    linksHtml.push(`<li><a href="${escapeAttr(s.slides_url)}"    target="_blank" rel="noopener">Slides →</a></li>`);
+          if (s.notebook_url)  linksHtml.push(`<li><a href="${escapeAttr(s.notebook_url)}"  target="_blank" rel="noopener">Notebook →</a></li>`);
+          if (s.recording_url) linksHtml.push(`<li><a href="${escapeAttr(s.recording_url)}" target="_blank" rel="noopener">Recording →</a></li>`);
+          if (s.readings_url)  linksHtml.push(`<li><a href="${escapeAttr(s.readings_url)}"  target="_blank" rel="noopener">Readings →</a></li>`);
+
+          li.innerHTML =
+            `<div class="tl-marker">W${s.week_number}</div>` +
+            `<div class="tl-content">` +
+              `<div class="tl-head">` +
+                `<span class="tl-date">${sdate ? formatDate(s.session_date) : 'Date TBD'}</span>` +
+                tagHtml +
+              `</div>` +
+              `<h2 class="tl-topic">${escapeHtml(s.topic || 'TBA')}</h2>` +
+              (linksHtml.length > 0 ? `<ul class="tl-links">${linksHtml.join('')}</ul>` : '') +
+            `</div>`;
+          ol.appendChild(li);
+        }
+        ol.hidden = false;
+      }
+
+      function showError(t) { $('error').textContent = t; $('error').hidden = false; $('lede').textContent = ''; }
+      function escapeHtml(s) {
+        return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      }
+      function escapeAttr(s) {
+        return String(s ?? '').replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+      }
+      function formatDate(iso) {
+        try {
+          return new Date(iso).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+        } catch { return iso; }
+      }
+    })();
+  </script>
+</AppShell>

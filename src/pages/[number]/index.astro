@@ -1,0 +1,297 @@
+---
+/**
+ * /[number]/
+ *
+ * The cohort entry point. Behaviour:
+ *
+ *   Not signed in → public landing with sign-in CTA
+ *   Signed in as student     → redirect to /[n]/me
+ *   Signed in as facilitator → redirect to /[n]/facilitator
+ *   Signed in as organiser   → redirect to /[n]/admin/
+ *
+ * The redirect happens client-side because Astro pages are statically
+ * generated and can't read the session cookie at build time. The page
+ * renders a brief "Welcome" while it figures out who you are, then
+ * either shows the public landing or sends you on.
+ *
+ * Data: reads cohort title + partner + dates from the DB via
+ * /api/cohort, so settings page edits show up here on next visit
+ * without a site rebuild. Falls back to the markdown frontmatter if
+ * the DB call fails (e.g. for someone hitting this offline).
+ */
+import Base from '../../layouts/Base.astro';
+import { getCollection } from 'astro:content';
+
+export async function getStaticPaths() {
+  const cohorts = await getCollection('cohorts');
+  return cohorts
+    .filter(c => c.data.portal?.enabled)
+    .map(c => ({
+      params: { number: String(c.data.number) },
+      props:  { cohort: c },
+    }));
+}
+
+const { cohort } = Astro.props;
+const cohortNumber = cohort.data.number;
+// Fallback metadata from markdown — only used until the DB fetch lands
+const fallbackTitle   = cohort.data.title;
+const fallbackPartner = cohort.data.partner;
+const fallbackStatus  = cohort.data.status;
+const fallbackStart   = cohort.data.startDate;
+---
+<Base
+  title={`Cohort ${cohortNumber} · TRI AI Saturdays`}
+  description="The operational portal for TRI AI Saturdays."
+  noFooter={true}
+>
+  <!-- The "checking who you are" splash. Always renders first;
+       JS hides this and shows either the public landing or
+       redirects, depending on auth state. -->
+  <div class="cohort-splash" id="splash">
+    <div class="splash-card">
+      <div class="splash-eyebrow mono">TRI AI Saturdays</div>
+      <h1 class="splash-num">Cohort {cohortNumber}</h1>
+      <p class="splash-checking">Just a sec…</p>
+    </div>
+  </div>
+
+  <!-- Public landing for not-signed-in visitors -->
+  <div class="cohort-public" id="public" hidden>
+    <div class="public-inner">
+      <div class="public-eyebrow mono">TRI AI Saturdays · Cohort Portal</div>
+      <h1 class="public-title" id="public-title">{fallbackTitle || `Cohort ${cohortNumber}`}</h1>
+
+      <p class="public-meta" id="public-meta">
+        {fallbackPartner && <span>with <strong>{fallbackPartner}</strong></span>}
+        {fallbackStart && <><span class="sep">·</span><span>starts {fallbackStart}</span></>}
+      </p>
+
+      <p class="public-lede">
+        This is the operational portal for Cohort {cohortNumber}.
+        Sign in to mark attendance, view your status, submit materials,
+        or manage the cohort.
+      </p>
+
+      <div class="public-actions">
+        <a href={`/signin?cohort=${cohortNumber}`} class="btn btn-primary btn-lg">
+          Sign in as student or facilitator →
+        </a>
+        <a href="/admin/login" class="btn btn-ghost">
+          Organiser sign in →
+        </a>
+      </div>
+
+      <p class="public-sub">
+        Not in this cohort? <a href="https://tri-ai.org/programmes/tri-ai-saturdays/">See the programme on tri-ai.org →</a>
+      </p>
+
+      <div class="public-help">
+        <h2 class="help-h">Where do I sign in?</h2>
+        <dl class="help-list">
+          <dt>Students</dt>
+          <dd>Enter the email you applied with. We email you a one-time sign-in link. No password.</dd>
+          <dt>Facilitators</dt>
+          <dd>Same as students — enter your email and check your inbox.</dd>
+          <dt>Organisers (TRI AI team)</dt>
+          <dd>Use the password sign-in link above.</dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    /* SPLASH while we figure out who you are */
+    .cohort-splash {
+      min-height: 70vh;
+      display: flex; align-items: center; justify-content: center;
+      padding: var(--space-5);
+    }
+    .splash-card { text-align: center; }
+    .splash-eyebrow {
+      font-size: 11px; font-weight: 700;
+      letter-spacing: 0.12em; text-transform: uppercase;
+      color: var(--teaching, #FE6612);
+      margin-bottom: 6px;
+    }
+    .splash-num {
+      font-size: clamp(36px, 6vw, 56px);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      margin: 0 0 12px;
+    }
+    .splash-checking {
+      color: var(--text-dim, #888); font-size: 14px;
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.4; } 50% { opacity: 1; }
+    }
+
+    /* PUBLIC LANDING */
+    .cohort-public { padding: clamp(40px, 8vh, 80px) var(--space-5); }
+    .public-inner {
+      max-width: 640px; margin: 0 auto;
+    }
+    .public-eyebrow {
+      font-size: 11px; font-weight: 700;
+      letter-spacing: 0.12em; text-transform: uppercase;
+      color: var(--teaching, #FE6612);
+      margin-bottom: 8px;
+    }
+    .public-title {
+      font-size: clamp(28px, 5vw, 40px);
+      font-weight: 800;
+      letter-spacing: -0.025em;
+      margin: 0 0 8px;
+      line-height: 1.15;
+    }
+    .public-meta {
+      color: var(--text-dim, #666);
+      font-size: 14px;
+      margin: 0 0 20px;
+      display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+    }
+    .public-meta .sep { color: var(--text-dim, #ccc); }
+    .public-meta strong { color: var(--text, #141414); font-weight: 600; }
+
+    .public-lede {
+      font-size: 16px; line-height: 1.6;
+      color: var(--text, #141414);
+      margin: 0 0 32px;
+    }
+
+    .public-actions {
+      display: flex; flex-direction: column; gap: 12px;
+      margin-bottom: 24px;
+    }
+    .public-actions .btn-lg {
+      padding: 14px 20px;
+      font-size: 15px; font-weight: 600;
+      border-radius: 10px;
+      text-decoration: none;
+      transition: all 0.15s;
+      display: inline-flex; align-items: center; justify-content: space-between;
+    }
+    .public-actions .btn-primary {
+      background: var(--teaching); color: #fff;
+      border: 1px solid var(--teaching);
+    }
+    .public-actions .btn-primary:hover { background: #E55400; border-color: #E55400; }
+    .public-actions .btn-ghost {
+      background: transparent; color: var(--text, #141414);
+      border: 1px solid var(--border, rgba(0,0,0,0.15));
+      padding: 12px 20px;
+      font-size: 14px; font-weight: 500;
+      border-radius: 10px;
+      text-decoration: none;
+      display: inline-flex; align-items: center; justify-content: space-between;
+    }
+    .public-actions .btn-ghost:hover {
+      background: var(--bg-soft, #fafafa);
+      border-color: var(--text-dim, #888);
+    }
+
+    .public-sub {
+      font-size: 13px;
+      color: var(--text-dim, #888);
+      margin: 0 0 40px;
+    }
+    .public-sub a {
+      color: var(--text-dim, #888); text-decoration: underline;
+    }
+
+    .public-help {
+      padding-top: 32px;
+      border-top: 1px solid var(--border, rgba(0,0,0,0.08));
+    }
+    .help-h {
+      font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--text-dim, #888);
+      margin: 0 0 12px;
+      font-weight: 600;
+    }
+    .help-list { margin: 0; }
+    .help-list dt {
+      font-weight: 600; font-size: 14px;
+      color: var(--text, #141414);
+      margin-top: 12px;
+    }
+    .help-list dd {
+      font-size: 13px; color: var(--text-dim, #666);
+      margin: 4px 0 0; line-height: 1.55;
+    }
+  </style>
+
+  <script is:inline define:vars={{ cohortNumber }}>
+    // Run as soon as possible — we want the redirect to feel instant.
+    (async function () {
+      const splash = document.getElementById('splash');
+      const publicView = document.getElementById('public');
+
+      // Try fetching the cohort metadata in parallel so we can update
+      // the public-landing copy from DB without forcing a rebuild.
+      const refreshCohortInfo = fetch('/api/cohort', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ action: 'get', cohort: cohortNumber }),
+      }).then(r => r.ok ? r.json() : null).catch(() => null);
+
+      // Session check is what decides the page state.
+      try {
+        const res = await fetch('/api/session', { credentials: 'same-origin' });
+        if (res.ok) {
+          const session = await res.json();
+          if (session && session.kind) {
+            // Authenticated — redirect to the role's home.
+            let dest;
+            if (session.kind === 'organiser') {
+              dest = '/' + cohortNumber + '/admin/';
+            } else if (session.kind === 'facilitator') {
+              dest = '/' + cohortNumber + '/facilitator';
+            } else {
+              dest = '/' + cohortNumber + '/me';
+            }
+            // location.replace so they can't back-button to this splash
+            location.replace(dest);
+            return;
+          }
+        }
+      } catch (e) {
+        // /api/session unreachable — fall through to public landing
+      }
+
+      // Not signed in. Update with fresh DB metadata if available,
+      // then show the public view.
+      const cohortData = await refreshCohortInfo;
+      if (cohortData && cohortData.cohort) {
+        const c = cohortData.cohort;
+        if (c.title) document.getElementById('public-title').textContent = c.title;
+        const metaParts = [];
+        if (c.partner) metaParts.push('<span>with <strong>' + escapeHtml(c.partner) + '</strong></span>');
+        if (c.start_date) {
+          const d = new Date(c.start_date);
+          if (!isNaN(d)) {
+            metaParts.push('<span class="sep">·</span><span>starts ' +
+              d.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' }) +
+              '</span>');
+          }
+        }
+        if (c.status && c.status !== 'running') {
+          metaParts.push('<span class="sep">·</span><span class="status-chip ' + escapeHtml(c.status) + '">' + escapeHtml(c.status) + '</span>');
+        }
+        if (metaParts.length > 0) {
+          document.getElementById('public-meta').innerHTML = metaParts.join('');
+        }
+      }
+
+      splash.hidden = true;
+      publicView.hidden = false;
+
+      function escapeHtml(s) {
+        return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      }
+    })();
+  </script>
+</Base>

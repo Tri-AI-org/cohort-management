@@ -13,6 +13,8 @@
  *   - Real success/failure feedback (no fire-and-forget submit)
  */
 import Base from '../../layouts/Base.astro';
+import AppShell from '../../layouts/AppShell.astro';
+import StudentNav from '../../components/StudentNav.astro';
 import { getCollection } from 'astro:content';
 import { getCohortState } from '../../lib/cohort';
 
@@ -39,15 +41,18 @@ const session = state.currentSession;
 const renderForm = !!session && !state.preStart && !state.completed && !state.onBreak;
 ---
 
-<Base
+<AppShell
   title={`Week ${session?.week ?? '—'} Check-in — Cohort ${d.number}`}
   description="Mark your attendance and share feedback on this week's session."
+  requiredKind="student-or-facilitator"
+  cohortNumber={d.number}
 >
+  <div class="container app-page" style="padding-top: var(--space-3);">
+    <StudentNav cohortNumber={d.number} active="checkin" />
+  </div>
+
   <section class="page-hd">
     <div class="container">
-      <nav class="page-hd-bread">
-        <a href={`/${d.number}/`}>← Cohort {d.number}</a>
-      </nav>
       <span class="page-hd-eyebrow">
         {state.preStart  && `Cohort starts ${d.schedule?.[0]?.date}`}
         {state.completed && `Cohort ${d.number} complete`}
@@ -59,7 +64,7 @@ const renderForm = !!session && !state.preStart && !state.completed && !state.on
         {state.preStart  && `The first session is ${d.schedule?.[0]?.date}. We'll see you then.`}
         {state.completed && `Thank you for an incredible cohort. The portal stays open for your records.`}
         {state.onBreak   && `Mid-cohort break — no session this week. Check-in reopens next Saturday.`}
-        {renderForm      && `Enter your registered email to confirm attendance for Week ${session?.week}: ${session?.topic}.`}
+        {renderForm      && `Confirm attendance for Week ${session?.week}: ${session?.topic}.`}
       </p>
     </div>
   </section>
@@ -203,7 +208,7 @@ const renderForm = !!session && !state.preStart && !state.completed && !state.on
     data-week={session?.week ?? ''}
     data-topic={session?.topic ?? ''}
   ></div>
-</Base>
+</AppShell>
 
 <script>
   // ── Wiring up the form. Cohort-agnostic — all cohort-specific
@@ -230,6 +235,28 @@ const renderForm = !!session && !state.preStart && !state.completed && !state.on
       e.preventDefault();
       await verifyEmail();
     });
+
+    // If a session is active (AppShell ensures it is, otherwise we're
+    // redirected to /signin), pre-fill the email and auto-trigger
+    // step 1 so the student goes straight to the attendance form.
+    (async function autofillFromSession() {
+      try {
+        const res = await fetch('/api/session', { credentials: 'same-origin' });
+        if (!res.ok) return;
+        const session = await res.json();
+        if (session?.email) {
+          const emailEl = $<HTMLInputElement>('email');
+          if (emailEl) {
+            emailEl.value = session.email;
+            // Trigger verification automatically — saves one click for
+            // every signed-in student. (If verification fails because
+            // they're not enrolled in *this* cohort, the form falls back
+            // to the manual flow with the email already filled in.)
+            await verifyEmail();
+          }
+        }
+      } catch (e) { /* silent fail — manual flow still works */ }
+    })();
 
     async function verifyEmail() {
       const emailEl = $<HTMLInputElement>('email')!;

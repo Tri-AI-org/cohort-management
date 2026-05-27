@@ -22,8 +22,14 @@ interface Props {
   /** If set, the app-bar shows a cohort badge linking to /[n]/. */
   cohortNumber?: number;
   /** Required role to view this page. If session.kind doesn't match,
-   *  client JS redirects to /signin or /admin/login. */
-  requiredKind?: 'student' | 'organiser' | 'any';
+   *  client JS redirects to /signin or /admin/login.
+   *  - 'student': only student sessions
+   *  - 'facilitator': only facilitator sessions
+   *  - 'organiser': only organiser sessions
+   *  - 'student-or-facilitator': either (used for shared student/facilitator pages)
+   *  - 'facilitator-or-organiser': either (facilitator pages organisers can also access)
+   *  - 'any': anyone (including not signed in) */
+  requiredKind?: 'student' | 'facilitator' | 'student-or-facilitator' | 'facilitator-or-organiser' | 'organiser' | 'any';
   noFooter?: boolean;
 }
 
@@ -103,7 +109,17 @@ const canonical = new URL(Astro.url.pathname, Astro.site).toString();
           const session = res.ok ? await res.json() : { kind: null };
 
           // Role gate
-          if (requiredKind !== 'any' && session.kind !== requiredKind) {
+          let roleOk = true;
+          if (requiredKind === 'any') {
+            roleOk = true;
+          } else if (requiredKind === 'student-or-facilitator') {
+            roleOk = session.kind === 'student' || session.kind === 'facilitator';
+          } else if (requiredKind === 'facilitator-or-organiser') {
+            roleOk = session.kind === 'facilitator' || session.kind === 'organiser';
+          } else {
+            roleOk = session.kind === requiredKind;
+          }
+          if (!roleOk) {
             // Stash the intended URL so the user comes back here after login
             try { sessionStorage.setItem('post_login_redirect', location.pathname); } catch (e) {}
             if (requiredKind === 'organiser') {

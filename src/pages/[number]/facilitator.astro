@@ -13,6 +13,7 @@
  * sessions (not just one facilitator's).
  */
 import AppShell from '../../layouts/AppShell.astro';
+import FacilitatorNav from '../../components/FacilitatorNav.astro';
 import { getCollection } from 'astro:content';
 
 export async function getStaticPaths() {
@@ -30,10 +31,12 @@ const cohortNumber = cohort.data.number;
 ---
 <AppShell
   title={`Facilitator · Cohort ${cohortNumber}`}
-  requiredKind="any"
+  requiredKind="facilitator-or-organiser"
   cohortNumber={cohortNumber}
 >
   <div class="container app-page">
+    <FacilitatorNav cohortNumber={cohortNumber} active="home" />
+
     <div style="display:flex; align-items:baseline; justify-content:space-between; gap:var(--space-3); margin-bottom:var(--space-3); flex-wrap:wrap;">
       <div>
         <h1>Facilitator dashboard</h1>

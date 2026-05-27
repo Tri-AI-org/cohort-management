@@ -106,6 +106,13 @@
   to     = "/.netlify/functions/applications-review"
   status = 200
 
+# /api/facilitator — facilitator dashboard backend (also used by
+# organisers acting on facilitators' behalf).
+[[redirects]]
+  from   = "/api/facilitator"
+  to     = "/.netlify/functions/facilitator-dashboard"
+  status = 200
+
 # Naked /10 → /10/  (preserves the trailing slash convention)
 [[redirects]]
   from = "/:number"

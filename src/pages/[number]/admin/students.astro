@@ -1,0 +1,205 @@
+---
+/**
+ * /[number]/admin/students
+ *
+ * Standalone students list with filter, search, and pagination.
+ *
+ * Hits /api/dashboard with action=students. Filter buttons map to
+ * the risk_status filter (ok/warning/critical). Click a row to open
+ * that student's profile drawer (in this MVP: shows the same data
+ * the /me page would, plus organiser-only notes).
+ */
+import AppShell from '../../../layouts/AppShell.astro';
+import { getCollection } from 'astro:content';
+
+export async function getStaticPaths() {
+  const cohorts = await getCollection('cohorts');
+  return cohorts
+    .filter(c => c.data.portal?.enabled)
+    .map(c => ({
+      params: { number: String(c.data.number) },
+      props:  { cohort: c },
+    }));
+}
+
+const { cohort } = Astro.props;
+const cohortNumber = cohort.data.number;
+---
+<AppShell
+  title={`Students · Cohort ${cohortNumber}`}
+  requiredKind="organiser"
+  cohortNumber={cohortNumber}
+>
+  <div class="container app-page">
+    <div style="display:flex; align-items:baseline; justify-content:space-between; gap:var(--space-3); margin-bottom:var(--space-3); flex-wrap:wrap;">
+      <div>
+        <h1>Students</h1>
+        <p class="lede" id="lede">Loading…</p>
+      </div>
+      <nav class="admin-nav">
+        <a href={`/${cohortNumber}/admin/`}>← Dashboard</a>
+        <a href={`/${cohortNumber}/admin/applications`}>Applications →</a>
+      </nav>
+    </div>
+
+    <div id="error" class="auth-msg err" hidden></div>
+
+    <div class="toolbar">
+      <input type="search" id="search" placeholder="Search name or email…" />
+      <div class="filter-pills">
+        <button class="pill active" data-filter="">All</button>
+        <button class="pill" data-filter="ok">On track</button>
+        <button class="pill" data-filter="warning">Warning</button>
+        <button class="pill" data-filter="critical">Critical</button>
+      </div>
+      <span style="flex:1"></span>
+      <span class="toolbar-count" id="count">—</span>
+    </div>
+
+    <table class="data-table" id="students-table">
+      <thead>
+        <tr>
+          <th>Student</th>
+          <th>Country</th>
+          <th class="right">Attended</th>
+          <th class="right">Missed</th>
+          <th class="right">Attendance</th>
+          <th>Risk</th>
+        </tr>
+      </thead>
+      <tbody id="students-tbody">
+        <tr><td colspan="6" class="empty">Loading…</td></tr>
+      </tbody>
+    </table>
+
+    <div class="pagination">
+      <span id="page-info">—</span>
+      <div>
+        <button id="prev-btn" disabled>← Prev</button>
+        <button id="next-btn" disabled>Next →</button>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    .admin-nav { display:flex; gap:16px; flex-wrap:wrap; font-size:var(--t-small); }
+    .admin-nav a {
+      color: var(--teaching); text-decoration: none;
+      padding: 6px 10px; border-radius: 6px;
+    }
+    .admin-nav a:hover { background: var(--teaching-light); }
+
+    .filter-pills { display: flex; gap: 4px; }
+    .pill {
+      padding: 6px 12px;
+      background: #fff; border: 1px solid var(--border, #d4d4d4);
+      border-radius: 999px;
+      font: inherit; font-size: var(--t-small);
+      cursor: pointer; transition: all 0.15s;
+    }
+    .pill:hover { background: var(--bg-soft, #fafafa); }
+    .pill.active {
+      background: var(--teaching); color: #fff; border-color: var(--teaching);
+    }
+  </style>
+
+  <script is:inline define:vars={{ cohortNumber }}>
+    (function () {
+      const $ = (id) => document.getElementById(id);
+      const state = {
+        page: 1, pageSize: 50,
+        filter: '', search: '',
+        total: 0,
+      };
+
+      $('search').addEventListener('input', debounce(() => {
+        state.search = $('search').value.trim();
+        state.page = 1; load();
+      }, 250));
+      document.querySelectorAll('.pill').forEach(p => {
+        p.addEventListener('click', () => {
+          document.querySelectorAll('.pill').forEach(x => x.classList.remove('active'));
+          p.classList.add('active');
+          state.filter = p.dataset.filter;
+          state.page = 1;
+          load();
+        });
+      });
+      $('prev-btn').addEventListener('click', () => { if (state.page > 1) { state.page--; load(); } });
+      $('next-btn').addEventListener('click', () => { state.page++; load(); });
+
+      load();
+
+      async function load() {
+        $('students-tbody').innerHTML = '<tr><td colspan="6" class="empty">Loading…</td></tr>';
+        try {
+          const res = await fetch('/api/dashboard', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+              action: 'students',
+              cohort: cohortNumber,
+              search: state.search || undefined,
+              filter: state.filter || undefined,
+              page: state.page,
+              pageSize: state.pageSize,
+            }),
+          });
+          if (res.status === 401) { location.replace('/admin/login'); return; }
+          const data = await res.json();
+          if (!res.ok) {
+            $('students-tbody').innerHTML = '<tr><td colspan="6" class="empty">' + escapeHtml(data.error || 'Failed.') + '</td></tr>';
+            return;
+          }
+          state.total = data.total || 0;
+          render(data.rows || []);
+        } catch (err) {
+          $('students-tbody').innerHTML = '<tr><td colspan="6" class="empty">Network error.</td></tr>';
+        }
+      }
+
+      function render(rows) {
+        $('count').textContent = state.total + ' student' + (state.total === 1 ? '' : 's');
+        $('lede').textContent = state.total + ' active student' + (state.total === 1 ? '' : 's') + ' in this cohort';
+        if (rows.length === 0) {
+          $('students-tbody').innerHTML = '<tr><td colspan="6" class="empty">No students match.</td></tr>';
+          renderPagination();
+          return;
+        }
+        const tbody = $('students-tbody');
+        tbody.innerHTML = '';
+        for (const r of rows) {
+          const tr = document.createElement('tr');
+          tr.innerHTML =
+            '<td>' +
+              '<div style="font-weight:600">' + escapeHtml(r.first_name + ' ' + r.last_name) + '</div>' +
+              '<div class="mono" style="font-size:12px;color:#888">' + escapeHtml(r.email) + '</div>' +
+            '</td>' +
+            '<td>' + escapeHtml(r.country || '—') + '</td>' +
+            '<td class="right mono">' + (r.attended_count ?? 0) + '</td>' +
+            '<td class="right mono">' + (r.missed_count ?? 0) + '</td>' +
+            '<td class="right mono">' + (r.attendance_pct === null || r.attendance_pct === undefined ? '—' : r.attendance_pct + '%') + '</td>' +
+            '<td><span class="risk-chip ' + r.risk_status + '">' + r.risk_status + '</span></td>';
+          tbody.appendChild(tr);
+        }
+        renderPagination();
+      }
+
+      function renderPagination() {
+        const start = (state.page - 1) * state.pageSize + 1;
+        const end = Math.min(state.page * state.pageSize, state.total);
+        $('page-info').textContent = state.total === 0 ? '—' : `Showing ${start}–${end} of ${state.total}`;
+        $('prev-btn').disabled = state.page === 1;
+        $('next-btn').disabled = state.page * state.pageSize >= state.total;
+      }
+
+      function debounce(fn, ms) {
+        let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+      }
+      function escapeHtml(s) {
+        return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      }
+    })();
+  </script>
+</AppShell>

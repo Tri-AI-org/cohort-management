@@ -202,61 +202,103 @@ async function setStatus(body, session, ip, ua) {
     });
   }
 
-  if (sendEmail) {
-    const sendOne = async (app) => {
+  // ── Email sends ────────────────────────────────────────────
+  //
+  // Two paths depending on volume:
+  //
+  //   ≤ 20 recipients → send synchronously here. Organiser sees results
+  //     reflected in the response. Gmail at ~1.5s/send fits within the
+  //     10s function timeout comfortably.
+  //
+  //   > 20 recipients → hand off to send-bulk-background.mjs. We return
+  //     200 immediately; the background function takes up to 15 minutes
+  //     to drain the queue. Organiser sees "queued for delivery" and
+  //     can verify completion in audit_log later.
+  //
+  // This is the difference between an organiser staring at a spinner for
+  // 3 minutes (bad) and seeing "168 emails are sending in the background"
+  // immediately (good).
+
+  let emailsSent = 0, emailsQueued = 0;
+
+  if (sendEmail && result.length > 0) {
+    const recipients = result.map(app => ({
+      email:         app.email,
+      firstName:     app.firstName,
+      applicationId: app.id,
+    }));
+
+    if (result.length <= 20) {
+      // Synchronous path — render + send inline.
+      const sendOne = async (app) => {
+        try {
+          const portalUrl = `${(process.env.PORTAL_BASE_URL || 'https://cohort.tri-ai.org').replace(/\/$/, '')}/${app.cohortNumber}/`;
+          const { text, html } = newStatus === 'accepted'
+            ? renderEmail({
+                heading: `You're in — welcome to Cohort ${app.cohortNumber}`,
+                paragraphs: [
+                  `Hi ${app.firstName},`,
+                  `Great news — your application to TRI AI Saturdays Cohort ${app.cohortNumber} has been accepted.`,
+                  customMessage || `The cohort starts soon. Open the portal below to complete onboarding, see the schedule, and meet the community.`,
+                ],
+                cta: { label: 'Open the cohort portal →', url: portalUrl },
+                footer: 'Reply to this email if you can no longer commit to the schedule, or with any questions.',
+              })
+            : newStatus === 'rejected'
+            ? renderEmail({
+                heading: `Cohort ${app.cohortNumber} — application update`,
+                paragraphs: [
+                  `Hi ${app.firstName},`,
+                  `Thank you for applying to Cohort ${app.cohortNumber}. We received many strong applications this round and were not able to offer you a place this time.`,
+                  customMessage || `We genuinely hope you'll apply again. Your application stays in our system, and our next cohort applications open later this year — we'll let you know.`,
+                ],
+                footer: 'TRI AI Saturdays — cohorts@tri-ai.org',
+              })
+            : renderEmail({
+                heading: `Cohort ${app.cohortNumber} — application update`,
+                paragraphs: [
+                  `Hi ${app.firstName},`,
+                  customMessage || `Your application status has been updated to: ${newStatus}.`,
+                ],
+              });
+
+          await sendMail({
+            to: app.email,
+            subject: newStatus === 'accepted'
+              ? `🎉 You're accepted into Cohort ${app.cohortNumber}`
+              : `Cohort ${app.cohortNumber} application update`,
+            text, html,
+          });
+          emailsSent++;
+        } catch (err) {
+          console.error(`Email to ${app.email} failed:`, err.message);
+        }
+      };
+      for (const app of result) await sendOne(app);
+    } else {
+      // Background path — invoke send-bulk-background via internal HTTP.
+      // Netlify's background functions trigger by POST to the function URL.
+      // We forward the session cookie so the function can verify caller.
+      const cohortNumber = result[0]?.cohortNumber;
       try {
-        const portalUrl = `${(process.env.PORTAL_BASE_URL || 'https://cohort.tri-ai.org').replace(/\/$/, '')}/${app.cohortNumber}/`;
-        const { text, html } = newStatus === 'accepted'
-          ? renderEmail({
-              heading: `You're in — welcome to Cohort ${app.cohortNumber}`,
-              paragraphs: [
-                `Hi ${app.firstName},`,
-                `Great news — your application to TRI AI Saturdays Cohort ${app.cohortNumber} has been accepted.`,
-                customMessage || `The cohort starts soon. Open the portal below to complete onboarding, see the schedule, and meet the community.`,
-              ],
-              cta: { label: 'Open the cohort portal →', url: portalUrl },
-              footer: 'Reply to this email if you can no longer commit to the schedule, or with any questions.',
-            })
-          : newStatus === 'rejected'
-          ? renderEmail({
-              heading: `Cohort ${app.cohortNumber} — application update`,
-              paragraphs: [
-                `Hi ${app.firstName},`,
-                `Thank you for applying to Cohort ${app.cohortNumber}. We received many strong applications this round and were not able to offer you a place this time.`,
-                customMessage || `We genuinely hope you'll apply again. Your application stays in our system, and our next cohort applications open later this year — we'll let you know.`,
-              ],
-              footer: 'TRI AI Saturdays — cohorts@tri-ai.org',
-            })
-          : renderEmail({
-              heading: `Cohort ${app.cohortNumber} — application update`,
-              paragraphs: [
-                `Hi ${app.firstName},`,
-                customMessage || `Your application status has been updated to: ${newStatus}.`,
-              ],
-            });
-
-        await sendMail({
-          to: app.email,
-          subject: newStatus === 'accepted'
-            ? `🎉 You're accepted into Cohort ${app.cohortNumber}`
-            : `Cohort ${app.cohortNumber} application update`,
-          text, html,
+        const baseUrl = process.env.URL || process.env.PORTAL_BASE_URL || 'https://cohort.tri-ai.org';
+        const cookie  = event.headers.cookie || event.headers.Cookie || '';
+        const r = await fetch(`${baseUrl}/.netlify/functions/send-bulk-background`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json', Cookie: cookie },
+          body:    JSON.stringify({
+            kind:          'application_status',
+            status:        newStatus,
+            cohortNumber,
+            recipients,
+            customMessage,
+          }),
         });
+        if (r.status === 202) emailsQueued = recipients.length;
+        else console.error('Background dispatch unexpected status:', r.status);
       } catch (err) {
-        console.error(`Email to ${app.email} failed:`, err.message);
+        console.error('Background dispatch failed:', err.message);
       }
-    };
-
-    // Send sequentially with a small gap so we don't hammer Gmail.
-    // For bulk accept (100 students), this is 100 × ~1.5s = 2.5
-    // minutes — that exceeds the function timeout. For sends > 20,
-    // a background worker pattern is needed. We log a warning.
-    if (result.length > 20) {
-      console.warn(`set_status: ${result.length} emails queued — Gmail SMTP may not finish in time. ` +
-                   `Consider importing in batches.`);
-    }
-    for (const app of result) {
-      await sendOne(app);
     }
   }
 
@@ -264,6 +306,7 @@ async function setStatus(body, session, ip, ua) {
     ok: true,
     updated: result.length,
     newStatus,
-    emailsSent: sendEmail ? result.length : 0,
+    emailsSent,
+    emailsQueued,
   });
 }

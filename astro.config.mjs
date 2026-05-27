@@ -5,7 +5,7 @@ export default defineConfig({
   // generating canonical URLs, sitemap entries, and og:url meta tags.
   // For preview deploys Netlify overrides via context-based env if
   // needed, but the production value is authoritative.
-  site: 'https://triai-cohort.netlify.app',
+  site: 'https://cohort.tri-ai.org',
 
   // No sitemap integration here intentionally — the portal isn't a
   // discoverable content site. Students arrive via direct links from

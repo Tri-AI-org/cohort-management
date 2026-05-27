@@ -6,6 +6,7 @@
  * Side-panel for detail view.
  */
 import AppShell from '../../../layouts/AppShell.astro';
+import AdminNav from '../../../components/AdminNav.astro';
 import { getCollection } from 'astro:content';
 
 export async function getStaticPaths() {
@@ -27,15 +28,11 @@ const cohortNumber = cohort.data.number;
   cohortNumber={cohortNumber}
 >
   <div class="container app-page">
-    <div style="display:flex; align-items:baseline; justify-content:space-between; gap:var(--space-3); margin-bottom:var(--space-3); flex-wrap:wrap;">
-      <div>
-        <h1>Applications</h1>
-        <p class="lede" id="summary">Loading…</p>
-      </div>
-      <nav class="admin-nav">
-        <a href={`/${cohortNumber}/admin/`}>← Dashboard</a>
-        <a href={`/${cohortNumber}/admin/import`}>Import CSV →</a>
-      </nav>
+    <AdminNav cohortNumber={cohortNumber} active="applications" />
+
+    <div style="margin-bottom: var(--space-3);">
+      <h1>Applications</h1>
+      <p class="lede" id="summary">Loading…</p>
     </div>
 
     <div id="error" class="auth-msg err" hidden></div>
@@ -110,12 +107,7 @@ const cohortNumber = cohort.data.number;
   </div>
 
   <style>
-    .admin-nav { display:flex; gap:16px; flex-wrap:wrap; font-size:var(--t-small); }
-    .admin-nav a {
-      color: var(--teaching); text-decoration: none;
-      padding: 6px 10px; border-radius: 6px;
-    }
-    .admin-nav a:hover { background: var(--teaching-light); }
+    .admin-nav-removed-see-component {}
 
     .drawer { position: fixed; inset: 0; z-index: 100; }
     .drawer-backdrop {

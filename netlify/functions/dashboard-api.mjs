@@ -46,6 +46,7 @@ export const handler = async (event) => {
     case 'overview':    return overview(cohort);
     case 'atrisk':      return atrisk(cohort);
     case 'students':    return students(body, cohort);
+    case 'student_detail': return studentDetail(body, cohort);
     case 'weekdetail':  return weekdetail(body, cohort);
     case 'feedback':    return feedback(body, cohort);
     case 'sessions':    return sessions(cohort);
@@ -136,6 +137,56 @@ async function students({ search, filter, page = 1, pageSize = 50 }, cohort) {
   );
 
   return json(200, { rows, total: total.n, page, pageSize: limit });
+}
+
+/**
+ * student_detail: full info on one student, by enrolment id.
+ * Returns: person fields + attendance summary + week-by-week history +
+ * a few application fields if available.
+ */
+async function studentDetail({ enrolmentId }, cohort) {
+  if (!enrolmentId) return json(400, { error: 'enrolmentId is required' });
+
+  const summary = await queryOne(
+    `SELECT s.attendance_pct, s.attended_count, s.missed_count, s.elapsed_sessions,
+            s.countable_sessions, s.cert_attendance_pct, s.risk_status,
+            p.id AS person_id, p.email, p.first_name, p.last_name,
+            p.country, p.city, p.github_url, p.gender, p.age_range, p.notes,
+            e.joined_week, e.left_week, e.accepted_at, e.accepted_by,
+            e.application_id
+       FROM student_attendance_summary s
+       JOIN enrolments e ON e.id = s.enrolment_id
+       JOIN people p     ON p.id = e.person_id
+      WHERE s.enrolment_id = $1 AND s.cohort_id = $2`,
+    [enrolmentId, cohort.id]
+  );
+  if (!summary) return json(404, { error: 'Student not found in this cohort' });
+
+  // Week-by-week
+  const weeks = await query(
+    `SELECT s.week_number, s.session_date, s.topic, s.is_break,
+            a.status, a.rating, a.feedback_positive, a.feedback_question, a.submitted_at
+       FROM sessions s
+       LEFT JOIN attendance a
+              ON a.session_id = s.id AND a.enrolment_id = $1
+      WHERE s.cohort_id = $2
+      ORDER BY s.week_number`,
+    [enrolmentId, cohort.id]
+  );
+
+  // Application snippet (if there is one linked)
+  let application = null;
+  if (summary.application_id) {
+    application = await queryOne(
+      `SELECT prereq_score, prereq_python, prereq_statistics, prereq_linear_alg,
+              prereq_numpy_pandas, prereq_ml_concepts,
+              applicant_role, field_of_work, hours_per_week, motivation
+         FROM applications WHERE id = $1`,
+      [summary.application_id]
+    );
+  }
+
+  return json(200, { summary, weeks, application });
 }
 
 async function weekdetail({ week, page = 1, pageSize = 50, search }, cohort) {

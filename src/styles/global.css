@@ -197,6 +197,17 @@ button { font: inherit; cursor: pointer; background: none; border: 0; color: inh
 .hdr-brand .wm-portal { color: var(--ink-mid); font-weight: 500; font-size: 0.85rem; }
 .hdr-meta { display: flex; align-items: center; gap: var(--space-3); }
 .hdr-meta .mono { font-size: var(--t-mono-sm); color: var(--ink-faint); }
+.hdr-signin {
+  font-size: var(--t-small);
+  font-weight: 600;
+  color: var(--teaching);
+  text-decoration: none;
+  padding: 4px 10px;
+  border: 1px solid var(--teaching);
+  border-radius: 6px;
+  transition: background 0.15s, color 0.15s;
+}
+.hdr-signin:hover { background: var(--teaching); color: #fff; }
 
 .theme-toggle {
   display: inline-flex;

@@ -11,6 +11,7 @@
  * context.
  */
 import AppShell from '../../../layouts/AppShell.astro';
+import AdminNav from '../../../components/AdminNav.astro';
 import { getCollection } from 'astro:content';
 
 export async function getStaticPaths() {
@@ -32,16 +33,11 @@ const cohortNumber = cohort.data.number;
   cohortNumber={cohortNumber}
 >
   <div class="container app-page">
-    <div style="display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:var(--space-3); margin-bottom: var(--space-3);">
-      <div>
-        <h1>Cohort {cohortNumber} dashboard</h1>
-        <p class="lede" id="cohort-meta">Loading…</p>
-      </div>
-      <nav class="admin-nav">
-        <a href={`/${cohortNumber}/admin/students`}>Students →</a>
-        <a href={`/${cohortNumber}/admin/applications`}>Applications →</a>
-        <a href={`/${cohortNumber}/admin/import`}>Import CSV →</a>
-      </nav>
+    <AdminNav cohortNumber={cohortNumber} active="dashboard" />
+
+    <div style="margin-bottom: var(--space-3);">
+      <h1>Cohort {cohortNumber} dashboard</h1>
+      <p class="lede" id="cohort-meta">Loading…</p>
     </div>
 
     <div id="error" class="auth-msg err" hidden></div>
@@ -103,20 +99,6 @@ const cohortNumber = cohort.data.number;
   </div>
 
   <style>
-    .admin-nav {
-      display: flex; gap: 16px; flex-wrap: wrap;
-      font-size: var(--t-small);
-    }
-    .admin-nav a {
-      color: var(--teaching);
-      text-decoration: none;
-      padding: 6px 10px; border-radius: 6px;
-      border: 1px solid transparent;
-    }
-    .admin-nav a:hover {
-      border-color: var(--teaching);
-      background: var(--teaching-light);
-    }
     .section-h {
       font-size: var(--t-h2);
       margin: var(--space-5) 0 var(--space-2);

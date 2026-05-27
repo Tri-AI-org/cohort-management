@@ -20,8 +20,8 @@ portal:
   attendanceOpen: true
   facilitatorOpen: true
   dashboardOpen: true
-  onboardingOpen: true
-  myStatusOpen: false   # Phase 2 feature — backend isn't ready yet
+  onboardingOpen: false   # /[n]/onboarding page not built yet
+  myStatusOpen: true      # /me page is ready
 
 # ─── Attendance + certificate rules ───
 targets:

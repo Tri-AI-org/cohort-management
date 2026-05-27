@@ -2,9 +2,19 @@
 /**
  * /[number]/admin/import
  *
- * Two-step CSV import: paste/upload → preview → commit.
+ * Three steps, plainly named:
+ *   1. UPLOAD   — drop the CSV
+ *   2. REVIEW   — see what's in it, decide whether to commit
+ *   3. DONE     — confirmation, link back to applications
+ *
+ * Design goals after first-look feedback:
+ *   - Make it obvious nothing has been written yet at step 2
+ *   - Reduce the noisy 6-card stat grid to a single sentence + table
+ *   - Explain what "new" vs "returning" actually mean
+ *   - Make the commit button feel safe and confident
  */
 import AppShell from '../../../layouts/AppShell.astro';
+import AdminNav from '../../../components/AdminNav.astro';
 import { getCollection } from 'astro:content';
 
 export async function getStaticPaths() {
@@ -26,129 +36,209 @@ const cohortNumber = cohort.data.number;
   cohortNumber={cohortNumber}
 >
   <div class="container app-page">
-    <div style="display:flex; align-items:baseline; justify-content:space-between; gap:var(--space-3); margin-bottom:var(--space-3);">
-      <div>
-        <h1>Import applications from Google Forms CSV</h1>
-        <p class="lede">
-          Download the responses sheet from Google Sheets (File → Download → CSV),
-          then upload it here. You'll see a preview before anything is written.
-        </p>
-        <p class="template-links">
-          Just testing?
-          <a href="/applications-template.csv" download>Download a sample CSV (5 fake rows)</a>
-          ·
-          <a href="/applications-template-empty.csv" download>Download an empty template (headers only)</a>
-        </p>
-      </div>
-      <nav class="admin-nav">
-        <a href={`/${cohortNumber}/admin/applications`}>← Applications</a>
-      </nav>
+    <AdminNav cohortNumber={cohortNumber} active="import" />
+
+    <div style="margin-bottom: var(--space-3);">
+      <h1>Import applications</h1>
+      <p class="lede">
+        Add applicants to Cohort {cohortNumber} from a Google Forms CSV export.
+        You'll get to review what's in the file before anything is saved.
+      </p>
     </div>
+
+    <!-- Stepper -->
+    <ol class="stepper" id="stepper">
+      <li class="step is-active" data-step="upload">
+        <span class="step-num">1</span><span class="step-label">Upload</span>
+      </li>
+      <li class="step" data-step="review">
+        <span class="step-num">2</span><span class="step-label">Review</span>
+      </li>
+      <li class="step" data-step="done">
+        <span class="step-num">3</span><span class="step-label">Done</span>
+      </li>
+    </ol>
 
     <div id="error" class="auth-msg err" hidden></div>
 
-    <!-- Step 1: upload -->
-    <div class="import-step" id="step-upload">
-      <div class="upload-card">
-        <label class="file-drop" id="file-drop">
-          <input type="file" id="file-input" accept=".csv,text/csv" hidden />
-          <div class="file-drop-icon">📄</div>
-          <div class="file-drop-text">
-            <strong>Choose a CSV file</strong>
-            <span>or drop one here</span>
-          </div>
-        </label>
-        <div class="upload-meta" id="upload-meta" hidden>
-          <span id="upload-filename"></span>
-          <span class="mono" id="upload-size"></span>
-          <button class="btn-link" id="upload-clear">Clear</button>
-        </div>
-        <div style="display:flex; justify-content:flex-end; margin-top:16px;">
-          <button class="btn primary" id="preview-btn" disabled>Preview import →</button>
-        </div>
-      </div>
-    </div>
+    <!-- Step 1: UPLOAD -->
+    <section class="card import-step" id="step-upload">
+      <h2 class="card-h">Step 1 — Pick your CSV file</h2>
+      <p class="card-sub">
+        In Google Sheets, the applications responses sheet:
+        <strong>File → Download → Comma-separated values (.csv)</strong>.
+        Then drop the file below.
+      </p>
 
-    <!-- Step 2: preview -->
-    <div class="import-step" id="step-preview" hidden>
-      <h2 class="section-h">Preview</h2>
-      <div class="stat-grid">
-        <div class="stat-card">
-          <div class="stat-label">Total rows</div>
-          <div class="stat-value" id="prev-total">—</div>
+      <label class="file-drop" id="file-drop">
+        <input type="file" id="file-input" accept=".csv,text/csv" hidden />
+        <div class="file-drop-icon">📄</div>
+        <div class="file-drop-text">
+          <strong>Choose a CSV file</strong>
+          <span>or drag and drop one here</span>
         </div>
-        <div class="stat-card">
-          <div class="stat-label">New applicants</div>
-          <div class="stat-value ok" id="prev-new">—</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Returning</div>
-          <div class="stat-value" id="prev-returning">—</div>
-          <div class="stat-sub" id="prev-returning-sub"></div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Already applied here</div>
-          <div class="stat-value warn" id="prev-dupes">—</div>
-          <div class="stat-sub">will update</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Errors</div>
-          <div class="stat-value alert" id="prev-errors">—</div>
-          <div class="stat-sub">will be skipped</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Duplicate rows in CSV</div>
-          <div class="stat-value" id="prev-csvdupes">—</div>
-          <div class="stat-sub">first wins</div>
-        </div>
+      </label>
+
+      <div class="upload-meta" id="upload-meta" hidden>
+        <span class="upload-meta-file">
+          <strong id="upload-filename"></strong>
+          <span class="mono" id="upload-size"></span>
+        </span>
+        <button class="btn-link" id="upload-clear">Remove</button>
       </div>
+
+      <p class="template-links">
+        Don't have a CSV yet?
+        <a href="/applications-template.csv" download>Download a sample (5 fake rows)</a>
+        or
+        <a href="/applications-template-empty.csv" download>an empty template</a>.
+      </p>
+
+      <div class="step-actions">
+        <button class="btn primary" id="preview-btn" disabled>Continue to review →</button>
+      </div>
+    </section>
+
+    <!-- Step 2: REVIEW -->
+    <section class="card import-step" id="step-review" hidden>
+      <div class="reassure">
+        <strong>Nothing has been saved yet.</strong>
+        This is a preview of what would happen if you committed the import.
+      </div>
+
+      <h2 class="card-h">Step 2 — Review what's in your file</h2>
+      <p class="card-sub" id="review-summary">—</p>
+
+      <!-- Compact summary table -->
+      <table class="summary-table" id="summary-table">
+        <tbody>
+          <tr>
+            <th>Rows in your file</th>
+            <td><span class="mono" id="prev-total">—</span></td>
+            <td class="explain">Every row in the CSV.</td>
+          </tr>
+          <tr>
+            <th>New applicants</th>
+            <td><span class="mono ok" id="prev-new">—</span></td>
+            <td class="explain">Emails we haven't seen in any previous cohort.</td>
+          </tr>
+          <tr>
+            <th>Returning applicants</th>
+            <td><span class="mono" id="prev-returning">—</span></td>
+            <td class="explain">Emails that match a person from a previous cohort. We'll link the new application to the existing record.</td>
+          </tr>
+          <tr id="row-already-applied" hidden>
+            <th>Already applied to Cohort {cohortNumber}</th>
+            <td><span class="mono warn" id="prev-dupes">—</span></td>
+            <td class="explain">These applications will be <em>updated</em> with the new submission (not duplicated).</td>
+          </tr>
+          <tr id="row-csv-dupes" hidden>
+            <th>Duplicate emails inside the CSV</th>
+            <td><span class="mono" id="prev-csvdupes">—</span></td>
+            <td class="explain">The same email appeared twice in the file. We'll keep the first one.</td>
+          </tr>
+          <tr id="row-errors" hidden>
+            <th>Rows with errors</th>
+            <td><span class="mono alert" id="prev-errors">—</span></td>
+            <td class="explain">These rows will be skipped — see details below.</td>
+          </tr>
+        </tbody>
+      </table>
 
       <div id="errors-panel" hidden>
-        <h3 class="subsection-h">Errors (won't be imported)</h3>
+        <h3 class="subsection-h">Rows that will be skipped</h3>
         <ul class="error-list" id="error-list"></ul>
       </div>
 
       <div id="returning-panel" hidden>
-        <h3 class="subsection-h">Examples of returning applicants</h3>
+        <h3 class="subsection-h">A few returning applicants we found</h3>
+        <p class="card-sub-small">
+          We'll match these by email. If a name has changed, the new submission's name wins.
+        </p>
         <ul class="returning-list" id="returning-list"></ul>
       </div>
 
-      <div class="action-row">
-        <button class="btn" id="back-btn">← Back</button>
+      <div class="step-actions">
+        <button class="btn" id="back-btn">← Back to upload</button>
         <span style="flex:1"></span>
-        <button class="btn primary" id="commit-btn">Commit import</button>
+        <button class="btn primary" id="commit-btn">
+          <span id="commit-label">Save these applications →</span>
+        </button>
       </div>
-    </div>
+    </section>
 
-    <!-- Step 3: done -->
-    <div class="import-step" id="step-done" hidden>
-      <div class="done-card">
-        <div class="done-icon">✓</div>
-        <h2>Import complete</h2>
-        <p id="done-summary"></p>
-        <div class="action-row" style="justify-content:center; margin-top:24px;">
-          <a class="btn" href={`/${cohortNumber}/admin/import`}>Import another →</a>
-          <a class="btn primary" href={`/${cohortNumber}/admin/applications`}>Review applications →</a>
-        </div>
+    <!-- Step 3: DONE -->
+    <section class="card import-step" id="step-done" hidden>
+      <div class="done-icon">✓</div>
+      <h2 class="card-h" style="text-align:center;">Saved</h2>
+      <p class="card-sub" style="text-align:center;" id="done-summary"></p>
+      <div class="step-actions" style="justify-content:center;">
+        <a class="btn" href={`/${cohortNumber}/admin/import`}>Import another file</a>
+        <a class="btn primary" href={`/${cohortNumber}/admin/applications`}>Review applications →</a>
       </div>
-    </div>
+    </section>
   </div>
 
   <style>
-    .upload-card {
-      background: #fff; border: 1px solid var(--border, rgba(0,0,0,0.08));
-      border-radius: 12px; padding: 24px;
+    /* ── Stepper ───────────────────────────────────────── */
+    .stepper {
+      list-style: none; padding: 0; margin: 0 0 var(--space-5);
+      display: flex; gap: 12px; flex-wrap: wrap;
     }
-    .template-links {
+    .step {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 12px 6px 6px;
+      background: var(--bg-soft, #f5f5f5);
+      border-radius: 999px;
       font-size: var(--t-small);
-      color: var(--text-dim, #777);
-      margin: 8px 0 0;
+      color: var(--text-dim, #888);
+      transition: all 0.15s;
     }
-    .template-links a {
-      color: var(--teaching);
-      text-decoration: underline;
+    .step-num {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 22px; height: 22px;
+      background: rgba(0,0,0,0.1); color: var(--text-dim, #777);
+      border-radius: 50%;
+      font-size: 12px; font-weight: 700;
+      font-family: var(--font-mono);
     }
-    .template-links a:hover { color: #E55400; }
+    .step.is-active {
+      background: var(--teaching);
+      color: #fff;
+    }
+    .step.is-active .step-num {
+      background: rgba(255,255,255,0.25); color: #fff;
+    }
+    .step.is-done {
+      background: var(--success); color: #fff;
+    }
+    .step.is-done .step-num { background: rgba(255,255,255,0.25); color: #fff; }
+    .step.is-done .step-num::before { content: '✓'; }
+    .step.is-done .step-num { font-size: 0; }
+    .step.is-done .step-num::before { font-size: 14px; }
+
+    /* ── Card / step container ────────────────────────── */
+    .card {
+      background: #fff;
+      border: 1px solid var(--border, rgba(0,0,0,0.08));
+      border-radius: 12px;
+      padding: clamp(20px, 4vw, 32px);
+    }
+    .card-h {
+      font-size: 19px; font-weight: 700;
+      margin: 0 0 8px;
+      letter-spacing: -0.01em;
+    }
+    .card-sub {
+      color: var(--text-dim, #666); font-size: 14px; line-height: 1.55;
+      margin: 0 0 20px;
+    }
+    .card-sub-small {
+      color: var(--text-dim, #888); font-size: 13px; line-height: 1.55;
+      margin: 4px 0 12px;
+    }
+
+    /* ── File drop zone ────────────────────────────────── */
     .file-drop {
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       gap: 12px; padding: 40px 24px;
@@ -157,60 +247,106 @@ const cohortNumber = cohort.data.number;
       cursor: pointer;
       transition: border-color 0.15s, background 0.15s;
     }
-    .file-drop:hover { border-color: var(--teaching); background: var(--teaching-light); }
-    .file-drop.is-dragging { border-color: var(--teaching); background: var(--teaching-light); }
+    .file-drop:hover, .file-drop.is-dragging {
+      border-color: var(--teaching); background: var(--teaching-light);
+    }
     .file-drop-icon { font-size: 36px; }
     .file-drop-text { text-align: center; }
     .file-drop-text strong { display: block; font-size: 16px; }
     .file-drop-text span { color: var(--text-dim, #888); font-size: var(--t-small); }
     .upload-meta {
-      display: flex; align-items: center; gap: 12px; padding: 12px 14px;
-      margin-top: 12px;
-      background: var(--bg-soft, #fafafa); border-radius: 8px;
-      font-size: var(--t-small);
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; padding: 14px 16px;
+      margin-top: 16px;
+      background: var(--gold-light); border: 1px solid var(--gold);
+      border-radius: 8px;
+      font-size: 14px;
     }
-    .upload-meta > span:first-child { font-weight: 600; flex: 1; }
+    .upload-meta strong { display: block; }
+    .upload-meta .mono { color: var(--text-dim, #777); font-size: 12px; }
 
-    .subsection-h {
-      font-size: 14px; margin: var(--space-4) 0 var(--space-2);
-      text-transform: uppercase; letter-spacing: 0.04em;
-      color: var(--text-dim, #666);
-    }
-    .error-list, .returning-list { list-style: none; margin: 0; padding: 0; }
-    .error-list li, .returning-list li {
-      padding: 8px 12px; background: #fff;
-      border: 1px solid var(--border, rgba(0,0,0,0.06));
-      border-radius: 6px; margin-bottom: 4px;
+    .template-links {
       font-size: var(--t-small);
+      color: var(--text-dim, #777);
+      margin: 16px 0 0;
     }
-    .error-list li { color: #8C2020; }
-    .returning-list li .mono { font-size: 12px; color: var(--text-dim, #888); }
+    .template-links a {
+      color: var(--teaching); text-decoration: underline;
+    }
 
-    .action-row {
+    .step-actions {
       display: flex; gap: 12px; align-items: center;
       margin-top: var(--space-5);
     }
-    .done-card {
-      background: #fff; border: 1px solid var(--border, rgba(0,0,0,0.08));
-      border-radius: 12px; padding: 40px;
-      text-align: center;
+
+    /* ── Review screen ─────────────────────────────────── */
+    .reassure {
+      background: #E8F5EC;
+      border: 1px solid #B8DDC4;
+      color: #1F6B3F;
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-size: 14px;
+      line-height: 1.5;
     }
+    .reassure strong { color: #1F6B3F; }
+
+    .summary-table {
+      width: 100%; border-collapse: collapse;
+      margin-bottom: 12px;
+    }
+    .summary-table th {
+      text-align: left; padding: 12px 14px;
+      font-weight: 600; font-size: 14px;
+      border-bottom: 1px solid var(--border, rgba(0,0,0,0.06));
+      width: 40%;
+    }
+    .summary-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border, rgba(0,0,0,0.06));
+      vertical-align: top;
+    }
+    .summary-table td:nth-child(2) {
+      width: 90px;
+      font-family: var(--font-mono);
+      font-size: 18px; font-weight: 700;
+      text-align: right;
+    }
+    .summary-table .mono.ok    { color: var(--success); }
+    .summary-table .mono.warn  { color: var(--warning); }
+    .summary-table .mono.alert { color: var(--alert); }
+    .summary-table .explain {
+      font-family: inherit; font-size: 13px; font-weight: 400;
+      color: var(--text-dim, #777);
+      text-align: left;
+      line-height: 1.5;
+    }
+
+    .subsection-h {
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-dim, #666);
+      margin: var(--space-5) 0 8px;
+    }
+    .error-list, .returning-list { list-style: none; margin: 0; padding: 0; }
+    .error-list li, .returning-list li {
+      padding: 10px 14px; background: var(--bg-soft, #fafafa);
+      border-radius: 6px; margin-bottom: 4px;
+      font-size: 13px;
+    }
+    .error-list li { background: #FBE9E9; color: #8C2020; }
+    .returning-list li .mono { font-size: 12px; color: var(--text-dim, #888); }
+
+    /* ── Done screen ───────────────────────────────────── */
     .done-icon {
       width: 64px; height: 64px; line-height: 64px;
       margin: 0 auto 16px;
       background: var(--success); color: #fff;
       font-size: 32px;
       border-radius: 50%;
-    }
-    .admin-nav { display:flex; gap:16px; flex-wrap:wrap; font-size:var(--t-small); }
-    .admin-nav a {
-      color: var(--teaching); text-decoration: none;
-      padding: 6px 10px; border-radius: 6px;
-    }
-    .admin-nav a:hover { background: var(--teaching-light); }
-    .section-h {
-      font-size: var(--t-h2); margin: 0 0 var(--space-3);
-      letter-spacing: -0.015em;
+      text-align: center;
     }
   </style>
 
@@ -220,20 +356,32 @@ const cohortNumber = cohort.data.number;
       let csvText = '';
       let csvFilename = '';
 
-      // ── Drag-and-drop ──────────────────────────────────────
+      // ── Stepper state ──────────────────────────────────
+      function setStep(name) {
+        const steps = ['upload', 'review', 'done'];
+        const idx = steps.indexOf(name);
+        document.querySelectorAll('.step').forEach(el => {
+          const i = steps.indexOf(el.dataset.step);
+          el.classList.remove('is-active', 'is-done');
+          if (i < idx) el.classList.add('is-done');
+          if (i === idx) el.classList.add('is-active');
+        });
+        document.querySelectorAll('.import-step').forEach(el => {
+          el.hidden = el.id !== ('step-' + name);
+        });
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+
+      // ── Step 1: file picker ────────────────────────────
       const fileDrop  = $('file-drop');
       const fileInput = $('file-input');
-      const uploadMeta = $('upload-meta');
       const previewBtn = $('preview-btn');
 
       fileDrop.addEventListener('click', () => fileInput.click());
-      fileDrop.addEventListener('dragover', (e) => {
-        e.preventDefault(); fileDrop.classList.add('is-dragging');
-      });
+      fileDrop.addEventListener('dragover', (e) => { e.preventDefault(); fileDrop.classList.add('is-dragging'); });
       fileDrop.addEventListener('dragleave', () => fileDrop.classList.remove('is-dragging'));
       fileDrop.addEventListener('drop', async (e) => {
-        e.preventDefault();
-        fileDrop.classList.remove('is-dragging');
+        e.preventDefault(); fileDrop.classList.remove('is-dragging');
         if (e.dataTransfer.files.length > 0) await handleFile(e.dataTransfer.files[0]);
       });
       fileInput.addEventListener('change', async () => {
@@ -242,26 +390,28 @@ const cohortNumber = cohort.data.number;
       $('upload-clear').addEventListener('click', () => {
         csvText = ''; csvFilename = '';
         fileInput.value = '';
-        uploadMeta.hidden = true;
+        $('upload-meta').hidden = true;
         previewBtn.disabled = true;
       });
 
       async function handleFile(file) {
-        if (!file.name.endsWith('.csv') && file.type !== 'text/csv') {
-          alert('Please choose a .csv file.');
+        if (!file.name.toLowerCase().endsWith('.csv') && file.type !== 'text/csv') {
+          showError('Please choose a .csv file (got "' + file.name + '").');
           return;
         }
+        clearError();
         csvText = await file.text();
         csvFilename = file.name;
         $('upload-filename').textContent = file.name;
         $('upload-size').textContent = formatBytes(file.size);
-        uploadMeta.hidden = false;
+        $('upload-meta').hidden = false;
         previewBtn.disabled = false;
       }
 
-      // ── Preview ────────────────────────────────────────────
+      // ── Step 2: preview ────────────────────────────────
       previewBtn.addEventListener('click', async () => {
-        previewBtn.disabled = true; previewBtn.textContent = 'Previewing…';
+        previewBtn.disabled = true; previewBtn.textContent = 'Reading the file…';
+        clearError();
         try {
           const res = await fetch('/api/applications/import', {
             method: 'POST',
@@ -275,24 +425,21 @@ const cohortNumber = cohort.data.number;
           const data = await res.json();
           if (!res.ok) { showError(data.error || 'Preview failed.'); return; }
           renderPreview(data);
-          $('step-upload').hidden = true;
-          $('step-preview').hidden = false;
+          setStep('review');
         } catch (err) {
           showError('Network error during preview.');
         } finally {
-          previewBtn.disabled = false; previewBtn.textContent = 'Preview import →';
+          previewBtn.disabled = false; previewBtn.textContent = 'Continue to review →';
         }
       });
 
-      $('back-btn').addEventListener('click', () => {
-        $('step-preview').hidden = true;
-        $('step-upload').hidden = false;
-      });
+      $('back-btn').addEventListener('click', () => setStep('upload'));
 
-      // ── Commit ─────────────────────────────────────────────
+      // ── Step 3: commit ─────────────────────────────────
       $('commit-btn').addEventListener('click', async () => {
-        if (!confirm('Commit this import? This action is undoable from SQL but cannot be reverted from the UI.')) return;
-        $('commit-btn').disabled = true; $('commit-btn').textContent = 'Committing…';
+        const commitBtn = $('commit-btn');
+        commitBtn.disabled = true;
+        $('commit-label').textContent = 'Saving…';
         try {
           const res = await fetch('/api/applications/import', {
             method: 'POST',
@@ -303,35 +450,68 @@ const cohortNumber = cohort.data.number;
             }),
           });
           const data = await res.json();
-          if (!res.ok) { showError(data.error || 'Commit failed.'); return; }
-          $('step-preview').hidden = true;
-          $('step-done').hidden = false;
-          $('done-summary').textContent =
-            'Imported ' + data.inserted + ' new applications and updated ' + data.updated +
-            (data.skipped ? ' (' + data.skipped + ' skipped)' : '') +
-            '. Batch ID: ' + data.batchId;
+          if (!res.ok) { showError(data.error || 'Save failed.'); return; }
+          const parts = [];
+          parts.push(`Added ${data.inserted} new application${data.inserted === 1 ? '' : 's'}`);
+          if (data.updated)  parts.push(`updated ${data.updated} existing`);
+          if (data.skipped)  parts.push(`skipped ${data.skipped} (errors)`);
+          $('done-summary').textContent = parts.join(', ') + '.';
+          setStep('done');
         } catch (err) {
-          showError('Network error during commit.');
+          showError('Network error during save.');
         } finally {
-          $('commit-btn').disabled = false; $('commit-btn').textContent = 'Commit import';
+          commitBtn.disabled = false;
+          $('commit-label').textContent = 'Save these applications →';
         }
       });
 
+      // ── Renderers ──────────────────────────────────────
       function renderPreview(d) {
         const s = d.summary || {};
-        $('prev-total').textContent     = s.totalRows ?? 0;
-        $('prev-new').textContent       = s.newApplicants ?? 0;
-        $('prev-returning').textContent = s.returningApplicants ?? 0;
-        $('prev-returning-sub').textContent =
-          (s.returningApplicants || 0) + ' matched by email';
-        $('prev-dupes').textContent   = s.alreadyAppliedToThisCohort ?? 0;
-        $('prev-errors').textContent  = s.errors ?? 0;
-        $('prev-csvdupes').textContent = s.duplicateEmailsInCsv ?? 0;
 
-        const errs = d.errors || [];
-        if (errs.length > 0) {
+        // The headline sentence at the top.
+        const total = s.totalRows || 0;
+        const valid = s.validRows || 0;
+        const errs  = s.errors    || 0;
+        let summaryText;
+        if (errs === 0 && valid === total) {
+          summaryText = `Your file has ${total} application${total === 1 ? '' : 's'}, all looking good.`;
+        } else if (errs === total) {
+          summaryText = `Your file has ${total} row${total === 1 ? '' : 's'}, but none could be read. See errors below.`;
+        } else {
+          summaryText = `Your file has ${total} row${total === 1 ? '' : 's'}: ${valid} look good, ${errs} have errors.`;
+        }
+        $('review-summary').textContent = summaryText;
+
+        $('prev-total').textContent     = total;
+        $('prev-new').textContent       = s.newApplicants       ?? 0;
+        $('prev-returning').textContent = s.returningApplicants ?? 0;
+
+        // Conditional rows — only show if they have non-zero values
+        if (s.alreadyAppliedToThisCohort > 0) {
+          $('row-already-applied').hidden = false;
+          $('prev-dupes').textContent = s.alreadyAppliedToThisCohort;
+        } else {
+          $('row-already-applied').hidden = true;
+        }
+        if (s.duplicateEmailsInCsv > 0) {
+          $('row-csv-dupes').hidden = false;
+          $('prev-csvdupes').textContent = s.duplicateEmailsInCsv;
+        } else {
+          $('row-csv-dupes').hidden = true;
+        }
+        if (errs > 0) {
+          $('row-errors').hidden = false;
+          $('prev-errors').textContent = errs;
+        } else {
+          $('row-errors').hidden = true;
+        }
+
+        // Error list (only if errors)
+        const errors = d.errors || [];
+        if (errors.length > 0) {
           const ul = $('error-list'); ul.innerHTML = '';
-          for (const e of errs) {
+          for (const e of errors) {
             const li = document.createElement('li');
             li.textContent = 'Row ' + e.row + ': ' + e.error;
             ul.appendChild(li);
@@ -341,6 +521,7 @@ const cohortNumber = cohort.data.number;
           $('errors-panel').hidden = true;
         }
 
+        // Returning examples
         const rets = d.returningExamples || [];
         if (rets.length > 0) {
           const ul = $('returning-list'); ul.innerHTML = '';
@@ -353,12 +534,22 @@ const cohortNumber = cohort.data.number;
         } else {
           $('returning-panel').hidden = true;
         }
+
+        // Commit button label, dynamic
+        const willWrite = (s.newApplicants || 0) + (s.alreadyAppliedToThisCohort || 0);
+        if (willWrite === 0) {
+          $('commit-label').textContent = 'Nothing to save';
+          $('commit-btn').disabled = true;
+        } else {
+          $('commit-label').textContent = willWrite === total
+            ? `Save all ${willWrite} →`
+            : `Save ${willWrite} of ${total} →`;
+          $('commit-btn').disabled = false;
+        }
       }
 
-      function showError(text) {
-        $('error').textContent = text;
-        $('error').hidden = false;
-      }
+      function showError(text) { $('error').textContent = text; $('error').hidden = false; }
+      function clearError()    { $('error').hidden = true; $('error').textContent = ''; }
       function formatBytes(n) {
         if (n < 1024) return n + ' B';
         if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';

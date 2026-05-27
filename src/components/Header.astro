@@ -25,6 +25,7 @@
     </a>
 
     <div class="hdr-meta">
+      <a href="/signin" class="hdr-signin" id="hdr-signin" hidden>Sign in</a>
       <a href="https://tri-ai.org" class="mono" rel="noopener">tri-ai.org →</a>
       <button
         type="button"
@@ -58,5 +59,27 @@
       root.setAttribute('data-theme', next);
       try { localStorage.setItem('triai-portal-theme', next); } catch (e) {}
     });
+  })();
+
+  // Show "Sign in" only if the user doesn't have an active session.
+  // AppShell will populate its own session-aware appbar; this is for
+  // public pages (root, cohort hub, sign-in pages themselves) where
+  // there's no AppShell.
+  // We avoid showing the link on the sign-in pages themselves.
+  (async function () {
+    const link = document.getElementById('hdr-signin');
+    if (!link) return;
+    // Don't show on /signin or /admin/login — confusing self-reference
+    const path = location.pathname.replace(/\/$/, '');
+    if (path === '/signin' || path === '/admin/login') return;
+    try {
+      const res = await fetch('/api/session', { credentials: 'same-origin' });
+      if (!res.ok) {
+        link.hidden = false;
+      }
+    } catch {
+      // If /api/session is unreachable just leave the link hidden;
+      // the AppShell-protected pages have their own handling.
+    }
   })();
 </script>

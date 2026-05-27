@@ -15,7 +15,7 @@
  */
 interface Props {
   cohortNumber: number;
-  active?: 'dashboard' | 'applications' | 'students' | 'import';
+  active?: 'dashboard' | 'applications' | 'students' | 'import' | 'settings';
 }
 const { cohortNumber, active } = Astro.props;
 
@@ -23,7 +23,8 @@ const items = [
   { key: 'dashboard',    label: 'Dashboard',    href: `/${cohortNumber}/admin/` },
   { key: 'applications', label: 'Applications', href: `/${cohortNumber}/admin/applications` },
   { key: 'students',     label: 'Students',     href: `/${cohortNumber}/admin/students` },
-  { key: 'import',       label: 'Import CSV',   href: `/${cohortNumber}/admin/import` },
+  { key: 'import',       label: 'Import',       href: `/${cohortNumber}/admin/import` },
+  { key: 'settings',     label: 'Settings',     href: `/${cohortNumber}/admin/settings` },
 ];
 ---
 <nav class="admin-nav" aria-label="Admin sections">

@@ -1,0 +1,187 @@
+---
+/**
+ * /admin/cohorts/new
+ *
+ * Create a new cohort. Fills in sensible defaults from the latest
+ * existing cohort (so "create Cohort 11" starts with everything
+ * Cohort 10 had configured, just with new dates).
+ *
+ * On submit: creates the cohort + auto-generates the per-week session
+ * rows. After saving, redirects to the new cohort's settings page so
+ * the organiser can fill in topics.
+ */
+import AppShell from '../../../layouts/AppShell.astro';
+---
+<AppShell title="New cohort · Admin" requiredKind="organiser">
+  <div class="container app-page">
+    <div style="margin-bottom: var(--space-3);">
+      <h1>Create a new cohort</h1>
+      <p class="lede">
+        Start a new cohort with sensible defaults. You can edit
+        everything after creation — this form just gets you to a
+        good starting point.
+      </p>
+    </div>
+
+    <div id="error" class="auth-msg err" hidden></div>
+
+    <form class="settings-form" id="new-cohort-form">
+      <label>Cohort number
+        <input name="number" type="number" min="1" max="999" required />
+        <span class="hint" id="number-hint">e.g. 11</span>
+      </label>
+      <label>Title
+        <input name="title" placeholder="e.g. Cohort 11 — Multimodal AI w/ Anthropic" />
+        <span class="hint">Optional — defaults to "Cohort N".</span>
+      </label>
+      <label>Year
+        <input name="year" type="number" min="2020" max="2099" />
+      </label>
+      <label>Partner
+        <input name="partner" placeholder="e.g. Google DeepMind, Anthropic" />
+      </label>
+      <div class="row">
+        <label>Start date
+          <input name="start_date" type="date" required />
+          <span class="hint">The date of Week 1's session.</span>
+        </label>
+        <label>End date
+          <input name="end_date" type="date" />
+          <span class="hint">Optional — auto-computed if blank.</span>
+        </label>
+      </div>
+      <div class="row">
+        <label>Total weeks
+          <input name="total_weeks" type="number" min="1" max="52" value="16" />
+        </label>
+        <label>Break week (optional)
+          <input name="break_week" type="number" min="1" max="52" placeholder="e.g. 7" />
+        </label>
+      </div>
+
+      <p style="margin-top:var(--space-3);padding-top:var(--space-3);border-top:1px solid var(--border, rgba(0,0,0,0.06));color:var(--text-dim,#666);font-size:13px;">
+        Creating the cohort will auto-generate <strong id="auto-weeks">16</strong>
+        session rows (one per week) with placeholder topics ("Week 1",
+        "Week 2", …) and dates falling weekly from your start date. You
+        can rename and re-date them on the schedule editor.
+      </p>
+
+      <div class="form-actions">
+        <a href="/admin/" class="btn">Cancel</a>
+        <button type="submit" class="btn primary" id="submit-btn">Create cohort →</button>
+      </div>
+    </form>
+  </div>
+
+  <style>
+    .settings-form {
+      background: #fff;
+      border: 1px solid var(--border, rgba(0,0,0,0.08));
+      border-radius: 12px;
+      padding: 24px 28px;
+      max-width: 720px;
+    }
+    .settings-form label {
+      display: block; margin-bottom: 16px;
+      font-size: 13px; font-weight: 600;
+    }
+    .settings-form .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 600px) { .settings-form .row { grid-template-columns: 1fr; } }
+    .settings-form input, .settings-form select {
+      display: block; width: 100%; box-sizing: border-box;
+      margin-top: 5px; padding: 9px 12px;
+      border: 1px solid var(--border, #d4d4d4);
+      border-radius: 7px;
+      font: inherit; font-size: 14px;
+      font-weight: 400;
+    }
+    .settings-form .hint {
+      display: block; margin-top: 4px;
+      font-size: 12px; color: var(--text-dim, #888); font-weight: 400;
+    }
+    .form-actions {
+      display: flex; gap: 12px;
+      margin-top: var(--space-3);
+    }
+    .form-actions { justify-content: flex-end; }
+  </style>
+
+  <script is:inline>
+    (function () {
+      const $ = (id) => document.getElementById(id);
+      const form = $('new-cohort-form');
+      const weeksEl = form.elements['total_weeks'];
+      const numberEl = form.elements['number'];
+
+      // Show what the auto-generated count will be
+      function updateAutoWeeks() {
+        const v = parseInt(weeksEl.value, 10) || 16;
+        $('auto-weeks').textContent = String(v);
+      }
+      weeksEl.addEventListener('input', updateAutoWeeks);
+      updateAutoWeeks();
+
+      // Suggest the next cohort number by looking up the latest one
+      (async () => {
+        try {
+          const r = await fetch('/api/cohort', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ action: 'list' }),
+          });
+          if (r.status === 401) { location.replace('/admin/login'); return; }
+          const d = await r.json();
+          if (d.cohorts && d.cohorts.length > 0) {
+            const max = Math.max(...d.cohorts.map(c => c.number));
+            numberEl.value = max + 1;
+            $('number-hint').textContent =
+              `Next available: ${max + 1}. Latest cohort is ${max}.`;
+          }
+        } catch {}
+      })();
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        $('error').hidden = true;
+        const submitBtn = $('submit-btn');
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Creating…';
+
+        const body = {
+          action: 'create',
+          number: parseInt(form.elements['number'].value, 10),
+          title:  form.elements['title'].value.trim() || null,
+          year:   form.elements['year'].value || null,
+          partner: form.elements['partner'].value.trim() || null,
+          start_date:  form.elements['start_date'].value || null,
+          end_date:    form.elements['end_date'].value || null,
+          total_weeks: parseInt(form.elements['total_weeks'].value, 10) || 16,
+          break_week:  form.elements['break_week'].value || null,
+        };
+
+        try {
+          const res = await fetch('/api/cohort', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify(body),
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            $('error').textContent = data.error || 'Could not create cohort.';
+            $('error').hidden = false;
+            return;
+          }
+          location.replace('/' + body.number + '/admin/settings');
+        } catch {
+          $('error').textContent = 'Network error.';
+          $('error').hidden = false;
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Create cohort →';
+        }
+      });
+    })();
+  </script>
+</AppShell>

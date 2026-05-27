@@ -42,6 +42,13 @@ const cohorts = (await getCollection('cohorts')).sort(
           </div>
         </a>
       ))}
+      <a class="cohort-card cohort-card-new" href="/admin/cohorts/new">
+        <div class="cohort-card-num mono cohort-card-new-icon">+</div>
+        <div class="cohort-card-body">
+          <div class="cohort-card-title">Create a new cohort</div>
+          <div class="cohort-card-meta">Set up the next cohort with sensible defaults.</div>
+        </div>
+      </a>
     </div>
   </div>
 
@@ -85,5 +92,17 @@ const cohorts = (await getCollection('cohorts')).sort(
     .cohort-card-title { font-weight: 600; font-size: 16px; }
     .cohort-card-meta { font-size: var(--t-small); color: var(--text-dim, #777); }
     .cohort-card-status { margin-top: auto; }
+    .cohort-card-new {
+      border: 1px dashed var(--border, rgba(0,0,0,0.18));
+      background: var(--bg-soft, #fafafa);
+    }
+    .cohort-card-new:hover { border-style: solid; border-color: var(--teaching); background: var(--teaching-light); }
+    .cohort-card-new-icon {
+      font-size: 36px; font-weight: 300;
+      background: rgba(0,0,0,0.04); color: var(--text-dim, #888);
+    }
+    .cohort-card-new:hover .cohort-card-new-icon {
+      background: var(--teaching); color: #fff;
+    }
   </style>
 </AppShell>

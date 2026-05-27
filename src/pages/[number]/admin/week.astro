@@ -1,0 +1,314 @@
+---
+/**
+ * /[number]/admin/week/[week]
+ *
+ * Detailed view of a single session week. Organisers see every
+ * active student with their current attendance status, and can:
+ *
+ *   - Click a status pill to mark the student manually
+ *   - Use the "Mark everyone left as ..." dropdown for bulk
+ *
+ * This is the surface for "we held the session live and want to
+ * mark everyone here without making them check in" and "Tunde
+ * emailed to say he was sick — set him to excused."
+ *
+ * Routing: Astro can't pre-render dynamic week numbers without
+ * statically knowing them. Instead the page renders the SHELL
+ * and reads ?week=N from the query string. URL example:
+ *   /10/admin/week/?week=3
+ */
+import AppShell from '../../../../layouts/AppShell.astro';
+import AdminNav from '../../../../components/AdminNav.astro';
+import { getCollection } from 'astro:content';
+
+export async function getStaticPaths() {
+  const cohorts = await getCollection('cohorts');
+  return cohorts
+    .filter(c => c.data.portal?.enabled)
+    .map(c => ({
+      params: { number: String(c.data.number) },
+      props:  { cohort: c },
+    }));
+}
+
+const { cohort } = Astro.props;
+const cohortNumber = cohort.data.number;
+---
+<AppShell
+  title={`Week attendance · Cohort ${cohortNumber}`}
+  requiredKind="organiser"
+  cohortNumber={cohortNumber}
+>
+  <div class="container app-page">
+    <AdminNav cohortNumber={cohortNumber} active="dashboard" />
+
+    <div style="display:flex; justify-content:space-between; align-items:baseline; gap:var(--space-3); margin-bottom:var(--space-3); flex-wrap:wrap;">
+      <div>
+        <h1 id="page-h">Week attendance</h1>
+        <p class="lede" id="lede">Loading…</p>
+      </div>
+      <div>
+        <a class="btn" href={`/${cohortNumber}/admin/`}>← Dashboard</a>
+      </div>
+    </div>
+
+    <div id="error" class="auth-msg err" hidden></div>
+    <div id="success" class="auth-msg ok" hidden></div>
+
+    <div id="content" hidden>
+      <div class="bulk-toolbar">
+        <input type="search" id="search" placeholder="Search a student…" />
+        <span style="flex:1"></span>
+        <label class="bulk-label">
+          Mark everyone unmarked as:
+          <select id="bulk-status">
+            <option value="">— pick —</option>
+            <option value="live">Live</option>
+            <option value="recording">Recording</option>
+            <option value="missed">Missed</option>
+            <option value="excused">Excused</option>
+          </select>
+          <button class="btn" id="bulk-btn" disabled>Apply</button>
+        </label>
+      </div>
+
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Student</th>
+            <th>Country</th>
+            <th>Status</th>
+            <th>Source</th>
+            <th>Rating</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+
+      <p class="lede" style="margin-top:var(--space-3);font-size:13px;">
+        Click any status pill to change it. Changes save instantly.
+      </p>
+    </div>
+  </div>
+
+  <style>
+    .bulk-toolbar {
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      margin-bottom: var(--space-3);
+    }
+    .bulk-toolbar input[type="search"] {
+      flex: 1; min-width: 200px;
+      padding: 8px 12px;
+      border: 1px solid var(--border, #d4d4d4);
+      border-radius: 8px;
+      font: inherit; font-size: 14px;
+    }
+    .bulk-label {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-size: var(--t-small);
+      color: var(--text-dim, #666);
+    }
+    .bulk-label select {
+      padding: 7px 10px;
+      border: 1px solid var(--border, #d4d4d4);
+      border-radius: 7px;
+      font: inherit; font-size: 13px;
+      background: #fff;
+    }
+
+    .att-pills {
+      display: inline-flex; gap: 4px;
+    }
+    .att-pill {
+      padding: 4px 9px;
+      border: 1px solid var(--border, #d4d4d4);
+      background: #fff;
+      color: var(--text-dim, #666);
+      border-radius: 999px;
+      font-size: 11px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.04em;
+      cursor: pointer; transition: all 0.1s;
+    }
+    .att-pill:hover { border-color: var(--text-dim, #999); }
+    .att-pill.is-active.live      { background: #E8F5EC; color: #1F6B3F; border-color: #1F6B3F; }
+    .att-pill.is-active.recording { background: var(--gold-light); color: var(--gold-deep); border-color: var(--gold-deep); }
+    .att-pill.is-active.missed    { background: #FBE9E9; color: #8C2020; border-color: #8C2020; }
+    .att-pill.is-active.excused   { background: rgba(0,0,0,0.08); color: #444; border-color: #444; }
+    .att-pill.is-saving { opacity: 0.5; cursor: wait; }
+
+    .source-tag {
+      font-family: var(--font-mono);
+      font-size: 11px; color: var(--text-dim, #999);
+    }
+    .source-tag.organiser { color: var(--teaching); }
+  </style>
+
+  <script is:inline define:vars={{ cohortNumber }}>
+    (function () {
+      const $ = (id) => document.getElementById(id);
+      const state = { week: null, sessionId: null, rows: [], filtered: [], search: '' };
+
+      // Read ?week=N
+      const params = new URLSearchParams(location.search);
+      state.week = Number(params.get('week'));
+      if (!state.week) {
+        $('error').textContent = 'No week specified. Append ?week=1 to the URL.';
+        $('error').hidden = false;
+        return;
+      }
+
+      $('search').addEventListener('input', () => {
+        state.search = $('search').value.trim().toLowerCase();
+        applyFilter();
+        renderRows();
+      });
+      $('bulk-status').addEventListener('change', () => {
+        $('bulk-btn').disabled = !$('bulk-status').value;
+      });
+      $('bulk-btn').addEventListener('click', bulkApply);
+
+      load();
+
+      async function load() {
+        // Find sessionId for this week via /api/dashboard sessions list
+        try {
+          const dr = await fetch('/api/dashboard', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ action: 'sessions', cohort: cohortNumber }),
+          });
+          if (dr.status === 401) { location.replace('/admin/login'); return; }
+          const dj = await dr.json();
+          if (!dr.ok) { showError(dj.error || 'Could not load sessions.'); return; }
+          const sess = (dj.rows || []).find(s => s.week_number === state.week);
+          if (!sess) { showError(`No session for week ${state.week}.`); return; }
+          state.sessionId = sess.id;
+
+          $('page-h').textContent = `Week ${state.week} — ${sess.topic}`;
+          $('lede').textContent = sess.session_date
+            ? `Session date: ${new Date(sess.session_date).toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' })}`
+            : 'No session date set';
+
+          // Pull attendance list
+          const ar = await fetch('/api/attendance-admin', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ action: 'list', sessionId: state.sessionId }),
+          });
+          const aj = await ar.json();
+          if (!ar.ok) { showError(aj.error || 'Could not load attendance.'); return; }
+          state.rows = aj.rows || [];
+          applyFilter();
+          renderRows();
+          $('content').hidden = false;
+        } catch {
+          showError('Network error.');
+        }
+      }
+
+      function applyFilter() {
+        if (!state.search) { state.filtered = state.rows.slice(); return; }
+        state.filtered = state.rows.filter(r =>
+          (r.first_name + ' ' + r.last_name + ' ' + r.email).toLowerCase().includes(state.search)
+        );
+      }
+
+      function renderRows() {
+        const tbody = $('rows');
+        tbody.innerHTML = '';
+        for (const r of state.filtered) {
+          const tr = document.createElement('tr');
+          const statuses = ['live', 'recording', 'missed', 'excused'];
+          const pillsHtml = statuses.map(s =>
+            `<button class="att-pill ${r.status === s ? 'is-active ' + s : ''}" data-enrol="${r.enrolment_id}" data-status="${s}">${s}</button>`
+          ).join('');
+          tr.innerHTML =
+            `<td>` +
+              `<div style="font-weight:600">${escapeHtml(r.first_name + ' ' + r.last_name)}</div>` +
+              `<div class="mono" style="font-size:12px;color:#888">${escapeHtml(r.email)}</div>` +
+            `</td>` +
+            // (country not in attendance-admin's list response; intentionally blank for now)
+            `<td>—</td>` +
+            `<td><div class="att-pills">${pillsHtml}</div></td>` +
+            `<td><span class="source-tag ${r.source || ''}">${r.source || '—'}</span></td>` +
+            `<td>${r.rating ? r.rating + '/5' : '—'}</td>`;
+          tbody.appendChild(tr);
+        }
+
+        tbody.querySelectorAll('.att-pill').forEach(b => {
+          b.addEventListener('click', () => markOne(b.dataset.enrol, b.dataset.status, b));
+        });
+      }
+
+      async function markOne(enrolmentId, status, button) {
+        button.classList.add('is-saving');
+        try {
+          const res = await fetch('/api/attendance-admin', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+              action: 'mark',
+              enrolmentId, sessionId: state.sessionId, status,
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Failed');
+          // Update local state
+          const row = state.rows.find(r => r.enrolment_id === enrolmentId);
+          if (row) { row.status = status; row.source = 'organiser'; }
+          applyFilter();
+          renderRows();
+        } catch (err) {
+          showError(err.message);
+        }
+      }
+
+      async function bulkApply() {
+        const status = $('bulk-status').value;
+        if (!status) return;
+        const unmarked = state.rows.filter(r => !r.status);
+        if (unmarked.length === 0) {
+          showError('Everyone already has a status set.');
+          return;
+        }
+        if (!confirm(`Mark ${unmarked.length} unmarked student${unmarked.length === 1 ? '' : 's'} as "${status}"?`)) return;
+
+        $('bulk-btn').disabled = true;
+        $('bulk-btn').textContent = 'Applying…';
+        try {
+          const items = unmarked.map(r => ({
+            enrolmentId: r.enrolment_id,
+            sessionId:   state.sessionId,
+            status,
+          }));
+          const res = await fetch('/api/attendance-admin', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ action: 'bulk_mark', items }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Failed');
+          for (const r of unmarked) { r.status = status; r.source = 'organiser'; }
+          applyFilter();
+          renderRows();
+          showSuccess(`Marked ${data.count} student${data.count === 1 ? '' : 's'} as "${status}".`);
+        } catch (err) {
+          showError(err.message);
+        } finally {
+          $('bulk-btn').disabled = false;
+          $('bulk-btn').textContent = 'Apply';
+        }
+      }
+
+      function showError(text)   { $('error').textContent = text; $('error').hidden = false; }
+      function showSuccess(text) { $('success').textContent = text; $('success').hidden = false; setTimeout(() => $('success').hidden = true, 3000); }
+      function escapeHtml(s) {
+        return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      }
+    })();
+  </script>
+</AppShell>

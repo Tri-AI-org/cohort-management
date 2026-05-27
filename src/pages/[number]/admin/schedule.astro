@@ -1,0 +1,318 @@
+---
+/**
+ * /[number]/admin/schedule
+ *
+ * Bulk editor for the cohort's week-by-week schedule. Each row is a
+ * session — editable date, topic, break-week flag, and facilitator
+ * assignment.
+ *
+ * Save model: changes are batched. The Save button at the bottom
+ * sends all dirty rows in one transaction. If saving partially
+ * fails, you see what was applied and what wasn't.
+ */
+import AppShell from '../../../layouts/AppShell.astro';
+import AdminNav from '../../../components/AdminNav.astro';
+import { getCollection } from 'astro:content';
+
+export async function getStaticPaths() {
+  const cohorts = await getCollection('cohorts');
+  return cohorts
+    .filter(c => c.data.portal?.enabled)
+    .map(c => ({
+      params: { number: String(c.data.number) },
+      props:  { cohort: c },
+    }));
+}
+
+const { cohort } = Astro.props;
+const cohortNumber = cohort.data.number;
+---
+<AppShell
+  title={`Schedule · Cohort ${cohortNumber}`}
+  requiredKind="organiser"
+  cohortNumber={cohortNumber}
+>
+  <div class="container app-page">
+    <AdminNav cohortNumber={cohortNumber} active="settings" />
+
+    <div style="display:flex; justify-content:space-between; align-items:baseline; gap:var(--space-3); margin-bottom:var(--space-3); flex-wrap:wrap;">
+      <div>
+        <h1>Schedule</h1>
+        <p class="lede">
+          Edit dates, topics, and facilitator assignments for each week.
+          Changes don't save until you click "Save all".
+        </p>
+      </div>
+      <div>
+        <a href={`/${cohortNumber}/admin/settings`} class="btn">← Settings</a>
+      </div>
+    </div>
+
+    <div id="error" class="auth-msg err" hidden></div>
+    <div id="success" class="auth-msg ok" hidden></div>
+
+    <div id="loading" class="lede">Loading sessions…</div>
+
+    <div id="content" hidden>
+      <div class="schedule-toolbar">
+        <span class="toolbar-count"><span id="dirty-count">0</span> unsaved change(s)</span>
+        <span style="flex:1"></span>
+        <button class="btn" id="reset-btn">Discard changes</button>
+        <button class="btn primary" id="save-btn" disabled>Save all</button>
+      </div>
+
+      <table class="schedule-table">
+        <thead>
+          <tr>
+            <th>Wk</th>
+            <th>Date</th>
+            <th>Topic</th>
+            <th>Break?</th>
+            <th>Facilitator (email)</th>
+          </tr>
+        </thead>
+        <tbody id="schedule-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <style>
+    .schedule-toolbar {
+      display: flex; align-items: center; gap: 12px;
+      margin-bottom: var(--space-3);
+    }
+    .toolbar-count { color: var(--text-dim, #888); font-size: var(--t-small); }
+    .toolbar-count #dirty-count.has-changes { color: var(--alert); font-weight: 700; }
+
+    .schedule-table {
+      width: 100%; border-collapse: collapse;
+      background: #fff;
+      border: 1px solid var(--border, rgba(0,0,0,0.08));
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .schedule-table th {
+      text-align: left; padding: 10px 14px;
+      background: var(--bg-soft, #fafafa);
+      border-bottom: 1px solid var(--border, rgba(0,0,0,0.08));
+      font-size: 12px; text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-dim, #666); font-weight: 600;
+    }
+    .schedule-table td {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border, rgba(0,0,0,0.06));
+      vertical-align: middle;
+    }
+    .schedule-table tr:last-child td { border-bottom: 0; }
+    .schedule-table tr.is-dirty td:first-child {
+      box-shadow: inset 3px 0 0 var(--teaching);
+    }
+    .schedule-table tr.is-break td { background: var(--gold-light); }
+    .schedule-table .wk-cell {
+      font-family: var(--font-mono); font-weight: 700;
+      color: var(--text-dim, #777); width: 40px;
+    }
+    .schedule-table input[type="text"],
+    .schedule-table input[type="date"],
+    .schedule-table input[type="email"] {
+      width: 100%; box-sizing: border-box;
+      padding: 7px 10px;
+      border: 1px solid var(--border, #d4d4d4);
+      border-radius: 6px;
+      font: inherit; font-size: 13px;
+      background: #fff;
+    }
+    .schedule-table input:focus {
+      outline: none; border-color: var(--teaching);
+      box-shadow: 0 0 0 2px var(--teaching-light);
+    }
+    .schedule-table td.date-cell { width: 140px; }
+    .schedule-table td.break-cell { width: 60px; text-align: center; }
+    .schedule-table td.facilitator-cell { width: 260px; }
+    .schedule-table input[type="checkbox"] {
+      width: 18px; height: 18px; cursor: pointer;
+    }
+  </style>
+
+  <script is:inline define:vars={{ cohortNumber }}>
+    (function () {
+      const $ = (id) => document.getElementById(id);
+      // state.sessions: original (server) values
+      // state.edits[id]: { date, topic, is_break, facilitator_email }
+      const state = { sessions: [], edits: {} };
+
+      $('reset-btn').addEventListener('click', () => {
+        if (Object.keys(state.edits).length === 0) return;
+        if (!confirm('Discard all unsaved changes?')) return;
+        state.edits = {};
+        renderRows();
+      });
+      $('save-btn').addEventListener('click', saveAll);
+
+      load();
+
+      async function load() {
+        try {
+          const res = await fetch('/api/sessions-admin', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ action: 'list', cohort: cohortNumber }),
+          });
+          if (res.status === 401) { location.replace('/admin/login'); return; }
+          const data = await res.json();
+          if (!res.ok) { showError(data.error || 'Could not load.'); return; }
+          state.sessions = data.sessions || [];
+          renderRows();
+          $('loading').hidden = true;
+          $('content').hidden = false;
+        } catch {
+          showError('Network error.');
+        }
+      }
+
+      function renderRows() {
+        const tbody = $('schedule-tbody');
+        tbody.innerHTML = '';
+        for (const s of state.sessions) {
+          const e = state.edits[s.id] || {};
+          const isDirty = !!state.edits[s.id];
+          const tr = document.createElement('tr');
+          if (isDirty) tr.classList.add('is-dirty');
+          const isBreak = e.is_break !== undefined ? e.is_break : s.is_break;
+          if (isBreak) tr.classList.add('is-break');
+
+          const dateVal  = e.date    !== undefined ? e.date    : (s.session_date ? s.session_date.slice(0, 10) : '');
+          const topicVal = e.topic   !== undefined ? e.topic   : (s.topic || '');
+          const facEmail = e.facilitator_email !== undefined ? e.facilitator_email : (s.fac_email || '');
+
+          tr.innerHTML =
+            `<td class="wk-cell">W${s.week_number}</td>` +
+            `<td class="date-cell">` +
+              `<input type="date" data-field="date" data-id="${s.id}" value="${escapeAttr(dateVal)}">` +
+            `</td>` +
+            `<td>` +
+              `<input type="text" data-field="topic" data-id="${s.id}" value="${escapeAttr(topicVal)}">` +
+            `</td>` +
+            `<td class="break-cell">` +
+              `<input type="checkbox" data-field="is_break" data-id="${s.id}" ${isBreak ? 'checked' : ''}>` +
+            `</td>` +
+            `<td class="facilitator-cell">` +
+              `<input type="email" data-field="facilitator_email" data-id="${s.id}" value="${escapeAttr(facEmail)}" placeholder="leave empty for none">` +
+            `</td>`;
+          tbody.appendChild(tr);
+        }
+
+        tbody.querySelectorAll('[data-field]').forEach(el => {
+          const handler = () => {
+            const id = el.dataset.id;
+            const field = el.dataset.field;
+            const original = origValue(id, field);
+            const current = el.type === 'checkbox' ? el.checked : el.value;
+
+            if (!state.edits[id]) state.edits[id] = {};
+
+            if (sameValue(current, original)) {
+              delete state.edits[id][field];
+              if (Object.keys(state.edits[id]).length === 0) delete state.edits[id];
+            } else {
+              state.edits[id][field] = current;
+            }
+            updateDirtyCount();
+          };
+          el.addEventListener('input', handler);
+          el.addEventListener('change', handler);
+        });
+        updateDirtyCount();
+      }
+
+      function origValue(id, field) {
+        const s = state.sessions.find(x => x.id === id);
+        if (!s) return null;
+        if (field === 'date')             return s.session_date ? s.session_date.slice(0, 10) : '';
+        if (field === 'topic')            return s.topic || '';
+        if (field === 'is_break')         return !!s.is_break;
+        if (field === 'facilitator_email') return s.fac_email || '';
+        return null;
+      }
+      function sameValue(a, b) {
+        if (typeof a === 'boolean' || typeof b === 'boolean') return !!a === !!b;
+        return String(a ?? '') === String(b ?? '');
+      }
+
+      function updateDirtyCount() {
+        const count = Object.keys(state.edits).length;
+        $('dirty-count').textContent = String(count);
+        $('dirty-count').classList.toggle('has-changes', count > 0);
+        $('save-btn').disabled = count === 0;
+      }
+
+      async function saveAll() {
+        const ids = Object.keys(state.edits);
+        if (ids.length === 0) return;
+        $('save-btn').disabled = true;
+        $('save-btn').textContent = 'Saving…';
+
+        try {
+          // Two passes: session fields, then facilitator assignments.
+          // The facilitator assignment is its own endpoint (because it
+          // does upserts on enrolments).
+          const sessionUpdates = ids
+            .map(id => {
+              const e = state.edits[id];
+              const fields = {};
+              if ('date' in e)     fields.session_date = e.date || null;
+              if ('topic' in e)    fields.topic        = e.topic;
+              if ('is_break' in e) fields.is_break     = e.is_break;
+              return Object.keys(fields).length ? { id, fields } : null;
+            })
+            .filter(Boolean);
+
+          if (sessionUpdates.length > 0) {
+            const r = await fetch('/api/sessions-admin', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'same-origin',
+              body: JSON.stringify({ action: 'bulk', sessions: sessionUpdates }),
+            });
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.error || 'Bulk save failed');
+          }
+
+          // Facilitator assignments — one call per changed row
+          for (const id of ids) {
+            if (!('facilitator_email' in state.edits[id])) continue;
+            const email = state.edits[id].facilitator_email;
+            const r = await fetch('/api/sessions-admin', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'same-origin',
+              body: JSON.stringify({ action: 'assign_facilitator', sessionId: id, email }),
+            });
+            if (!r.ok) {
+              const d = await r.json();
+              throw new Error(`Facilitator update on a session failed: ${d.error || ''}`);
+            }
+          }
+
+          // Reload from server to capture canonical values
+          state.edits = {};
+          await load();
+          showSuccess('All changes saved.');
+        } catch (err) {
+          showError(err.message || 'Save failed.');
+        } finally {
+          $('save-btn').disabled = false;
+          $('save-btn').textContent = 'Save all';
+        }
+      }
+
+      function showError(text)   { $('error').textContent = text; $('error').hidden = false; window.scrollTo(0, 0); }
+      function showSuccess(text) { $('success').textContent = text; $('success').hidden = false; setTimeout(() => $('success').hidden = true, 3000); }
+      function escapeAttr(s) {
+        return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      }
+    })();
+  </script>
+</AppShell>

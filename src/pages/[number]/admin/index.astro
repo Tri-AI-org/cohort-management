@@ -259,6 +259,11 @@ const cohortNumber = cohort.data.number;
               '<div class="drop-off-rate"><strong>' + rate + '</strong><br>' +
                 ((sess.attended_live||0) + (sess.watched_recording||0)) + ' / ' + elig +
               '</div>';
+            row.style.cursor = 'pointer';
+            row.title = 'Click to manage Week ' + sess.week_number + ' attendance';
+            row.addEventListener('click', () => {
+              location.href = '/' + cohortNumber + '/admin/week/?week=' + sess.week_number;
+            });
           }
           rowsEl.appendChild(row);
         }

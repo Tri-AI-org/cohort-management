@@ -1,0 +1,497 @@
+---
+/**
+ * /[number]/admin/settings
+ *
+ * The cohort's complete configuration in one place. Replaces editing
+ * markdown frontmatter. Tabbed UI to keep each section focused:
+ *
+ *   Basics      — title, partner, status, dates, duration, summary
+ *   Attendance  — certificate threshold, at-risk thresholds
+ *   Schedule    — embeds the schedule editor (link to dedicated page)
+ *   Links       — Discord, mailing list, main site, Skills Boost
+ *   Emails      — from-name, reply-to, reminder schedule
+ *   Flags       — portal feature flags
+ */
+import AppShell from '../../../layouts/AppShell.astro';
+import AdminNav from '../../../components/AdminNav.astro';
+import { getCollection } from 'astro:content';
+
+export async function getStaticPaths() {
+  const cohorts = await getCollection('cohorts');
+  return cohorts
+    .filter(c => c.data.portal?.enabled)
+    .map(c => ({
+      params: { number: String(c.data.number) },
+      props:  { cohort: c },
+    }));
+}
+
+const { cohort } = Astro.props;
+const cohortNumber = cohort.data.number;
+---
+<AppShell
+  title={`Settings · Cohort ${cohortNumber}`}
+  requiredKind="organiser"
+  cohortNumber={cohortNumber}
+>
+  <div class="container app-page">
+    <AdminNav cohortNumber={cohortNumber} active="settings" />
+
+    <div style="margin-bottom: var(--space-3);">
+      <h1>Cohort {cohortNumber} settings</h1>
+      <p class="lede">
+        Everything about this cohort lives here. Changes save instantly
+        when you click "Save" on each section.
+      </p>
+    </div>
+
+    <div id="error" class="auth-msg err" hidden></div>
+    <div id="success" class="auth-msg ok" hidden></div>
+
+    <div id="loading" class="lede">Loading…</div>
+
+    <div id="content" hidden>
+      <!-- Tab nav -->
+      <nav class="settings-tabs" role="tablist">
+        <button class="tab is-active" data-tab="basics"    role="tab">Basics</button>
+        <button class="tab"           data-tab="attendance" role="tab">Attendance rules</button>
+        <button class="tab"           data-tab="schedule"  role="tab">Schedule</button>
+        <button class="tab"           data-tab="links"     role="tab">Links</button>
+        <button class="tab"           data-tab="emails"    role="tab">Emails</button>
+        <button class="tab"           data-tab="flags"     role="tab">Portal features</button>
+      </nav>
+
+      <!-- BASICS -->
+      <section class="tab-panel is-active" data-panel="basics">
+        <h2 class="card-h">Basics</h2>
+        <p class="card-sub">Title, partner, dates, narrative.</p>
+        <form class="settings-form" data-form="basics">
+          <div class="row">
+            <label>Title<input name="title" required /></label>
+            <label>Year<input name="year" type="number" min="2020" max="2099" /></label>
+          </div>
+          <div class="row">
+            <label>Partner<input name="partner" placeholder="e.g. Google DeepMind" /></label>
+            <label>Status
+              <select name="status">
+                <option value="upcoming">Upcoming</option>
+                <option value="running">Running</option>
+                <option value="completed">Completed</option>
+                <option value="archived">Archived</option>
+              </select>
+            </label>
+          </div>
+          <div class="row">
+            <label>Start date<input name="start_date" type="date" /></label>
+            <label>End date  <input name="end_date"   type="date" /></label>
+          </div>
+          <div class="row">
+            <label>Total weeks<input name="total_weeks" type="number" min="1" max="52" /></label>
+            <label>Duration label<input name="duration_label" placeholder="e.g. 16 weeks" /></label>
+          </div>
+          <label>Format<input name="format" placeholder="e.g. Hybrid, In-person, Remote" /></label>
+          <label>Summary<textarea name="summary" rows="4"
+            placeholder="A short paragraph describing this cohort"></textarea></label>
+          <div class="form-actions">
+            <button type="submit" class="btn primary">Save basics</button>
+          </div>
+        </form>
+      </section>
+
+      <!-- ATTENDANCE -->
+      <section class="tab-panel" data-panel="attendance">
+        <h2 class="card-h">Attendance rules</h2>
+        <p class="card-sub">Thresholds that decide who's on track and who needs intervention.</p>
+        <form class="settings-form" data-form="attendance">
+          <label>Certificate threshold (% attendance required)
+            <input name="cert_attendance_pct" type="number" min="0" max="100" />
+            <span class="hint">Default: 60. Students at or above this % at cohort end earn a certificate.</span>
+          </label>
+          <div class="row">
+            <label>At-risk warning (missed sessions)
+              <input name="atrisk_warn_misses" type="number" min="1" max="20" />
+              <span class="hint">Show "warning" risk chip when missed sessions reach this number.</span>
+            </label>
+            <label>At-risk critical (missed sessions)
+              <input name="atrisk_crit_misses" type="number" min="1" max="20" />
+              <span class="hint">Show "critical" risk chip and trigger urgent emails.</span>
+            </label>
+          </div>
+          <div class="row">
+            <label>Break week (optional)
+              <input name="break_week" type="number" min="1" max="52" placeholder="e.g. 7 or empty" />
+              <span class="hint">The week that doesn't count toward attendance. Leave empty for no break.</span>
+            </label>
+            <label>Session day of week
+              <select name="session_day_of_week">
+                <option value="0">Sunday</option>
+                <option value="1">Monday</option>
+                <option value="2">Tuesday</option>
+                <option value="3">Wednesday</option>
+                <option value="4">Thursday</option>
+                <option value="5">Friday</option>
+                <option value="6">Saturday</option>
+              </select>
+            </label>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn primary">Save attendance rules</button>
+          </div>
+        </form>
+      </section>
+
+      <!-- SCHEDULE -->
+      <section class="tab-panel" data-panel="schedule">
+        <h2 class="card-h">Schedule</h2>
+        <p class="card-sub">
+          The week-by-week curriculum. Editable date, topic, break-week
+          flag, and facilitator assignment per row.
+        </p>
+        <p>
+          <a class="btn primary" href={`/${cohortNumber}/admin/schedule`}>
+            Open the schedule editor →
+          </a>
+        </p>
+      </section>
+
+      <!-- LINKS -->
+      <section class="tab-panel" data-panel="links">
+        <h2 class="card-h">External links</h2>
+        <p class="card-sub">Destinations linked from emails and onboarding.</p>
+        <form class="settings-form" data-form="links">
+          <label>Discord invite URL
+            <input name="discord_url" type="url" placeholder="https://discord.gg/…" />
+          </label>
+          <label>Mailing list URL
+            <input name="mailing_list_url" type="url" placeholder="https://groups.google.com/…" />
+          </label>
+          <label>Skills Boost URL
+            <input name="skills_boost_url" type="url" />
+          </label>
+          <label>Main site cohort URL
+            <input name="main_site_url" type="url"
+              placeholder="https://tri-ai.org/programmes/.../cohorts/N" />
+            <span class="hint">The corresponding public marketing page on tri-ai.org.</span>
+          </label>
+          <div class="form-actions">
+            <button type="submit" class="btn primary">Save links</button>
+          </div>
+        </form>
+      </section>
+
+      <!-- EMAILS -->
+      <section class="tab-panel" data-panel="emails">
+        <h2 class="card-h">Email & reminders</h2>
+        <p class="card-sub">
+          Per-cohort overrides. Leave fields empty to use the global
+          environment defaults.
+        </p>
+        <form class="settings-form" data-form="emails">
+          <label>From name override
+            <input name="email_from_name" placeholder="Default: TRI AI Saturdays" />
+            <span class="hint">Shown as the sender name in recipients' inboxes.</span>
+          </label>
+          <label>Reply-to override
+            <input name="email_reply_to" type="email" placeholder="cohorts@tri-ai.org" />
+            <span class="hint">When students reply, where does it go?</span>
+          </label>
+
+          <h3 class="subsection-h">Saturday reminder cron</h3>
+          <p class="card-sub-small">When should the "today's check-in" reminder go out for THIS cohort?</p>
+          <div class="row">
+            <label>Day of week (UTC)
+              <select name="reminder_cron_dow">
+                <option value="0">Sunday</option>
+                <option value="1">Monday</option>
+                <option value="2">Tuesday</option>
+                <option value="3">Wednesday</option>
+                <option value="4">Thursday</option>
+                <option value="5">Friday</option>
+                <option value="6">Saturday</option>
+              </select>
+            </label>
+            <label>Hour of day (UTC, 0-23)
+              <input name="reminder_cron_hour_utc" type="number" min="0" max="23" />
+              <span class="hint">06 UTC = 07:00 Lagos / 02:00 New York</span>
+            </label>
+          </div>
+
+          <h3 class="subsection-h">At-risk warning cron</h3>
+          <p class="card-sub-small">When should at-risk students get their weekly nudge?</p>
+          <div class="row">
+            <label>Day of week (UTC)
+              <select name="atrisk_cron_dow">
+                <option value="0">Sunday</option>
+                <option value="1">Monday</option>
+                <option value="2">Tuesday</option>
+                <option value="3">Wednesday</option>
+                <option value="4">Thursday</option>
+                <option value="5">Friday</option>
+                <option value="6">Saturday</option>
+              </select>
+            </label>
+            <label>Hour of day (UTC, 0-23)
+              <input name="atrisk_cron_hour_utc" type="number" min="0" max="23" />
+            </label>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn primary">Save email settings</button>
+          </div>
+        </form>
+      </section>
+
+      <!-- FLAGS -->
+      <section class="tab-panel" data-panel="flags">
+        <h2 class="card-h">Portal features</h2>
+        <p class="card-sub">Turn portal surfaces on or off per cohort.</p>
+        <form class="settings-form" data-form="flags">
+          <label class="checkbox-label">
+            <input type="checkbox" name="enabled" />
+            <span>Portal enabled (master switch)</span>
+            <span class="hint">If off, this cohort doesn't appear in the portal at all.</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" name="attendanceOpen" />
+            <span>Attendance check-in is open</span>
+            <span class="hint">Students can mark their attendance via /[n]/check-in.</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" name="dashboardOpen" />
+            <span>Organiser dashboard is open</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" name="facilitatorOpen" />
+            <span>Facilitator dashboard is open</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" name="myStatusOpen" />
+            <span>Student /me page is open</span>
+            <span class="hint">Students can see their attendance progress.</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" name="onboardingOpen" />
+            <span>Onboarding checklist is open</span>
+            <span class="hint">(Not implemented yet — leave off until built.)</span>
+          </label>
+          <div class="form-actions">
+            <button type="submit" class="btn primary">Save feature flags</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  </div>
+
+  <style>
+    .settings-tabs {
+      display: flex; flex-wrap: wrap; gap: 4px;
+      border-bottom: 1px solid var(--border, rgba(0,0,0,0.08));
+      margin-bottom: var(--space-5);
+    }
+    .tab {
+      padding: 10px 16px;
+      background: transparent;
+      border: 0;
+      color: var(--text-dim, #777);
+      font: inherit; font-size: 14px; font-weight: 500;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .tab:hover { color: var(--text, #141414); }
+    .tab.is-active {
+      color: var(--teaching);
+      border-bottom-color: var(--teaching);
+      font-weight: 600;
+    }
+    .tab-panel { display: none; }
+    .tab-panel.is-active { display: block; }
+
+    .card-h {
+      font-size: 19px; font-weight: 700;
+      margin: 0 0 8px;
+      letter-spacing: -0.01em;
+    }
+    .card-sub {
+      color: var(--text-dim, #666); font-size: 14px; line-height: 1.55;
+      margin: 0 0 20px;
+    }
+    .card-sub-small {
+      color: var(--text-dim, #777); font-size: 13px; line-height: 1.55;
+      margin: 4px 0 12px;
+    }
+    .subsection-h {
+      font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;
+      color: var(--text-dim, #666);
+      margin: 24px 0 6px;
+    }
+
+    .settings-form {
+      background: #fff;
+      border: 1px solid var(--border, rgba(0,0,0,0.08));
+      border-radius: 10px;
+      padding: 20px 24px;
+      max-width: 720px;
+    }
+    .settings-form label {
+      display: block; margin-bottom: 16px;
+      font-size: 13px; font-weight: 600;
+      color: var(--text, #141414);
+    }
+    .settings-form .row {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    }
+    @media (max-width: 600px) {
+      .settings-form .row { grid-template-columns: 1fr; }
+    }
+    .settings-form input,
+    .settings-form select,
+    .settings-form textarea {
+      display: block; width: 100%; box-sizing: border-box;
+      margin-top: 5px;
+      padding: 9px 12px;
+      border: 1px solid var(--border, #d4d4d4);
+      border-radius: 7px;
+      font: inherit; font-size: 14px;
+      background: #fff;
+      font-weight: 400;
+    }
+    .settings-form textarea { resize: vertical; font-family: inherit; }
+    .settings-form input:focus, .settings-form select:focus, .settings-form textarea:focus {
+      outline: none; border-color: var(--teaching);
+      box-shadow: 0 0 0 3px var(--teaching-light);
+    }
+    .settings-form .hint {
+      display: block; margin-top: 4px;
+      font-size: 12px; color: var(--text-dim, #888); font-weight: 400;
+    }
+    .checkbox-label {
+      display: grid !important;
+      grid-template-columns: 18px 1fr;
+      gap: 8px 10px;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border, rgba(0,0,0,0.05));
+    }
+    .checkbox-label input[type="checkbox"] {
+      width: 18px; height: 18px;
+      margin: 0; padding: 0;
+    }
+    .checkbox-label > span { font-weight: 600; }
+    .checkbox-label .hint { grid-column: 2; margin-top: 0; }
+
+    .form-actions {
+      display: flex; gap: 12px;
+      margin-top: var(--space-3); padding-top: var(--space-3);
+      border-top: 1px solid var(--border, rgba(0,0,0,0.06));
+    }
+  </style>
+
+  <script is:inline define:vars={{ cohortNumber }}>
+    (function () {
+      const $ = (id) => document.getElementById(id);
+      let cohortData = null;
+
+      // ── Tab nav ────────────────────────────────────────
+      document.querySelectorAll('.tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          document.querySelectorAll('.tab').forEach(t => t.classList.remove('is-active'));
+          document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('is-active'));
+          tab.classList.add('is-active');
+          document.querySelector('[data-panel="' + tab.dataset.tab + '"]').classList.add('is-active');
+        });
+      });
+
+      // ── Initial fetch ──────────────────────────────────
+      loadCohort();
+
+      async function loadCohort() {
+        try {
+          const res = await fetch('/api/cohort', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ action: 'get', cohort: cohortNumber }),
+          });
+          if (res.status === 401) { location.replace('/admin/login'); return; }
+          const data = await res.json();
+          if (!res.ok) { showError(data.error || 'Failed to load cohort.'); return; }
+          cohortData = data.cohort;
+          populate(cohortData);
+          $('loading').hidden = true;
+          $('content').hidden = false;
+        } catch {
+          showError('Network error.');
+        }
+      }
+
+      function populate(c) {
+        // For each form, set values from the cohort object
+        document.querySelectorAll('.settings-form').forEach(form => {
+          for (const el of form.elements) {
+            if (!el.name) continue;
+            if (el.type === 'checkbox') {
+              el.checked = !!(c.portal_flags && c.portal_flags[el.name]);
+            } else if (el.type === 'date') {
+              el.value = c[el.name] ? String(c[el.name]).slice(0, 10) : '';
+            } else {
+              el.value = c[el.name] ?? '';
+            }
+          }
+        });
+      }
+
+      // ── Save handlers ──────────────────────────────────
+      document.querySelectorAll('.settings-form').forEach(form => {
+        form.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          clearMessages();
+          const section = form.dataset.form;
+
+          const fields = {};
+          if (section === 'flags') {
+            // Portal flags go in a nested jsonb object
+            const flags = {};
+            for (const el of form.elements) {
+              if (!el.name) continue;
+              flags[el.name] = !!el.checked;
+            }
+            fields.portal_flags = flags;
+          } else {
+            for (const el of form.elements) {
+              if (!el.name) continue;
+              fields[el.name] = el.value;
+            }
+          }
+
+          const submitBtn = form.querySelector('button[type="submit"]');
+          submitBtn.disabled = true;
+          const oldText = submitBtn.textContent;
+          submitBtn.textContent = 'Saving…';
+          try {
+            const res = await fetch('/api/cohort', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'same-origin',
+              body: JSON.stringify({ action: 'update', cohort: cohortNumber, fields }),
+            });
+            const data = await res.json();
+            if (!res.ok) { showError(data.error || 'Save failed.'); return; }
+            cohortData = data.cohort;
+            populate(cohortData);
+            showSuccess(`Saved ${section}.`);
+          } catch {
+            showError('Network error.');
+          } finally {
+            submitBtn.disabled = false;
+            submitBtn.textContent = oldText;
+          }
+        });
+      });
+
+      function showError(text)   { $('error').textContent = text; $('error').hidden = false; window.scrollTo(0, 0); }
+      function showSuccess(text) { $('success').textContent = text; $('success').hidden = false; setTimeout(() => $('success').hidden = true, 3000); }
+      function clearMessages()   { $('error').hidden = true; $('success').hidden = true; }
+    })();
+  </script>
+</AppShell>
